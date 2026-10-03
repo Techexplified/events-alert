@@ -9,20 +9,10 @@ let selectedTriggerId = null;
 
 // Reopen Home view
 function openHome() {
-  if (!t) {
-    console.log('openHome called (outside Trello iframe)');
-    window.location.href = './home.html';
-    return;
-  }
-  t.closeModal().then(function () {
-    t.modal({
-      title: 'Event Alerts',
-      url: t.signUrl('./home.html'),
-      accentColor: '#2563EB',
-      height: 600
-    });
-  });
+  const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./home.html') : './home.html';
+  window.location.href = targetUrl;
 }
+
 
 // Render selectable trigger cards
 function renderTriggerCards() {

@@ -5,23 +5,10 @@ import { alertTypes, getIconSvg } from './alert-types.js';
 const t = typeof window.TrelloPowerUp !== 'undefined' ? window.TrelloPowerUp.iframe() : null;
 
 function openCreateAlert() {
-  if (!t) {
-    console.log('openCreateAlert called (outside Trello iframe)');
-    window.location.href = './create-alert.html';
-    return;
-  }
-  t.closeModal().then(function () {
-    // Note: this closes and reopens a new modal rather than an in-page
-    // transition, consistent with the separate-HTML-file-per-screen
-    // pattern used throughout this project.
-    t.modal({
-      title: 'Event Alerts',
-      url: t.signUrl('./create-alert.html'),
-      accentColor: '#2563EB',
-      height: 650
-    });
-  });
+  const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./create-alert.html') : './create-alert.html';
+  window.location.href = targetUrl;
 }
+
 
 // Render alert cards
 function renderAlertCards() {
@@ -51,10 +38,25 @@ function renderAlertCards() {
 
   // Attach click listeners to alert cards
   container.querySelectorAll('.alert-card').forEach((card) => {
-    card.addEventListener('click', () => {
+    card.addEventListener('click', async () => {
       const typeId = card.getAttribute('data-alert-id');
       console.log('alert type selected:', typeId);
-      // TODO: navigate to alert-type-specific setup once that flow is built
+      const draft = {
+        alertName: '',
+        triggerType: typeId,
+        conditions: null,
+        recipients: null
+      };
+      if (t && typeof t.set === 'function') {
+        try {
+          await t.set('board', 'private', 'alertDraft', draft);
+        } catch (err) {
+          console.warn('Error saving alert draft:', err);
+        }
+      } else {
+        localStorage.setItem('alertDraft', JSON.stringify(draft));
+      }
+      openCreateAlert();
     });
   });
 }
