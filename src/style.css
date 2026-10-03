@@ -4,6 +4,7 @@
   --primary-hover: #1D4ED8;
   --primary-active: #1E40AF;
   --primary-light: #EFF6FF;
+  --primary-border: #93C5FD;
   --bg-sidebar: #F8FAFC;
   --bg-main: #FFFFFF;
   --text-dark: #0F172A;
@@ -14,6 +15,8 @@
   --card-hover-border: #CBD5E1;
   --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
   --card-shadow-hover: 0 3px 8px rgba(0, 0, 0, 0.06);
+  --error: #EF4444;
+  --error-bg: #FEF2F2;
 }
 
 * {
@@ -48,6 +51,7 @@ body {
   padding: 14px 20px;
   border-bottom: 1px solid var(--border-color);
   background-color: var(--bg-main);
+  flex-shrink: 0;
 }
 
 .header-left {
@@ -171,66 +175,214 @@ body {
 /* Content Area */
 .content-area {
   flex: 1;
-  padding: 24px 28px;
+  padding: 20px 28px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
 
+/* Stepper Component */
+.stepper-container {
+  margin-bottom: 24px;
+  width: 100%;
+}
+
+.stepper-wrapper {
+  position: relative;
+  width: 100%;
+  padding: 4px 10px 0 10px;
+}
+
+.stepper-line-bg {
+  position: absolute;
+  top: 18px;
+  left: 36px;
+  right: 36px;
+  height: 2px;
+  background-color: #E2E8F0;
+  z-index: 1;
+}
+
+.stepper-steps {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  z-index: 2;
+}
+
+.step-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 60px;
+}
+
+.step-circle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  background-color: #FFFFFF;
+  border: 2px solid #CBD5E1;
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+}
+
+.step-label {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.step-item.active .step-circle {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #FFFFFF;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+}
+
+.step-item.active .step-label {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.step-item.completed .step-circle {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #FFFFFF;
+}
+
+.step-item.completed .step-label {
+  color: var(--text-dark);
+  font-weight: 600;
+}
+
+/* Content Headings */
 .content-header {
   margin-bottom: 20px;
 }
 
 .content-title {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 800;
   color: var(--text-dark);
   line-height: 1.25;
   letter-spacing: -0.02em;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .content-subtitle {
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--text-muted);
   line-height: 1.4;
+}
+
+/* Form Styles */
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-label {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-dark);
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px 14px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text-dark);
+  background-color: #FFFFFF;
+  border: 1.5px solid var(--border-color);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-input::placeholder {
+  color: #94A3B8;
+}
+
+.form-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.form-input.has-error {
+  border-color: var(--error);
+  background-color: var(--error-bg);
+}
+
+.error-message {
+  display: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--error);
+  margin-top: 2px;
+}
+
+.error-message.visible {
+  display: block;
 }
 
 /* Alert Cards List */
 .alert-cards-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: 10px;
 }
 
 .alert-card {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 12px 16px;
+  padding: 10px 14px;
   background-color: var(--bg-main);
   border: 1px solid var(--border-card);
   border-radius: 12px;
   box-shadow: var(--card-shadow);
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
   user-select: none;
 }
 
 .alert-card:hover {
   border-color: var(--card-hover-border);
   box-shadow: var(--card-shadow-hover);
-  transform: translateY(-1px);
 }
 
-.alert-card:active {
-  transform: translateY(0);
+/* Radio Card Variant */
+.alert-card.selectable:hover {
+  border-color: var(--primary-border);
+}
+
+.alert-card.selected {
+  background-color: #F0F7FF;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
 }
 
 .alert-icon-wrapper {
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   border-radius: 10px;
   display: flex;
   align-items: center;
@@ -273,7 +425,76 @@ body {
   height: 18px;
 }
 
-/* Create Alert Button */
+/* Radio Circle Indicator */
+.alert-radio {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid #CBD5E1;
+  background-color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.alert-card:hover .alert-radio {
+  border-color: #94A3B8;
+}
+
+.alert-card.selected .alert-radio {
+  border-color: var(--primary);
+}
+
+.radio-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: var(--primary);
+  display: none;
+}
+
+.alert-card.selected .radio-dot {
+  display: block;
+}
+
+/* Action Footer */
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+/* Buttons */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 22px;
+  background-color: var(--primary);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-hover);
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+}
+
+.btn-primary:active {
+  background-color: var(--primary-active);
+}
+
+/* Home Create Button */
 .btn-create-alert {
   display: flex;
   align-items: center;
