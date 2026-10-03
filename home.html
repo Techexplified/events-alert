@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Event Alerts</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="modal-layout">
+      <!-- Header Row -->
+      <header class="modal-header">
+        <div class="header-left">
+          <div class="header-icon-badge">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 2C10.343 2 9 3.343 9 5v1.07C6.164 7.14 4 9.814 4 13v4l-2 2v1h20v-1l-2-2v-4c0-3.186-2.164-5.86-5-6.93V5c0-1.657-1.343-3-3-3zm0 20c1.105 0 2-.895 2-2h-4c0 1.105.895 2 2 2z"/>
+            </svg>
+          </div>
+          <h1 class="header-title">Event Alerts</h1>
+        </div>
+        <button id="close-modal-btn" class="close-btn" aria-label="Close modal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </header>
+
+      <!-- Modal Body (Sidebar + Content Area) -->
+      <div class="modal-body">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+          <button class="nav-item active" data-nav="home">
+            <span class="nav-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+            </span>
+            <span>Home</span>
+          </button>
+          <button class="nav-item" data-nav="my-alerts">
+            <span class="nav-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
+                <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
+              </svg>
+            </span>
+            <span>My Alerts</span>
+          </button>
+          <button class="nav-item" data-nav="create-alert">
+            <span class="nav-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </span>
+            <span>Create Alert</span>
+          </button>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="content-area">
+          <div class="content-header">
+            <h2 class="content-title">Stay on top of what<br />matters</h2>
+            <p class="content-subtitle">Get email notifications when important things happen on your board.</p>
+          </div>
+
+          <!-- Alert Type Cards Container -->
+          <div id="alert-cards-container" class="alert-cards-list"></div>
+
+          <!-- Create Alert CTA -->
+          <button id="btn-create-alert" class="btn-create-alert">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Create Alert
+          </button>
+        </main>
+      </div>
+    </div>
+
+    <script src="https://p.trellocdn.com/power-up.min.js"></script>
+    <script type="module" src="/src/home.js"></script>
+  </body>
+</html>
