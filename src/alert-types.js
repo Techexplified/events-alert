@@ -1,6 +1,6 @@
 export const alertTypes = [
   {
-    id: 'card-stuck',
+    id: 'stuck-in-list',
     icon: '⏰',
     iconBg: '#FEE2E2',
     iconColor: '#EF4444',
@@ -44,6 +44,7 @@ export const alertTypes = [
 // Helper to render crisp SVG icons for each alert type
 export function getIconSvg(typeId, color) {
   switch (typeId) {
+    case 'stuck-in-list':
     case 'card-stuck':
       return `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="9"/>

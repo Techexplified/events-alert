@@ -1,5 +1,5 @@
 export const steps = [
-  { step: 1, label: 'Alert Details' },
+  { step: 1, label: 'Alert Type' },
   { step: 2, label: 'Conditions' },
   { step: 3, label: 'Recipients' },
   { step: 4, label: 'Review' }
@@ -14,9 +14,13 @@ export function renderStepper(container, currentStep = 1) {
   const el = typeof container === 'string' ? document.querySelector(container) : container;
   if (!el) return;
 
+  const totalSteps = steps.length;
+  const progressRatio = totalSteps > 1 ? (currentStep - 1) / (totalSteps - 1) : 0;
+
   const html = `
     <div class="stepper-wrapper">
       <div class="stepper-line-bg"></div>
+      <div class="stepper-line-progress" style="width: calc((100% - 72px) * ${progressRatio});"></div>
       <div class="stepper-steps">
         ${steps
           .map((item) => {
@@ -24,9 +28,15 @@ export function renderStepper(container, currentStep = 1) {
             const isCompleted = item.step < currentStep;
             const stepClass = isActive ? 'active' : isCompleted ? 'completed' : 'inactive';
 
+            const circleContent = isCompleted
+              ? `<svg class="step-check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>`
+              : item.step;
+
             return `
               <div class="step-item ${stepClass}">
-                <div class="step-circle">${item.step}</div>
+                <div class="step-circle">${circleContent}</div>
                 <div class="step-label">${item.label}</div>
               </div>
             `;

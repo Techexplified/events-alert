@@ -13,6 +13,12 @@ function openHome() {
   window.location.href = targetUrl;
 }
 
+// Open Step 2 (Conditions)
+function openConditions() {
+  const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./conditions.html') : './conditions.html';
+  window.location.href = targetUrl;
+}
+
 
 // Render selectable trigger cards
 function renderTriggerCards() {
@@ -144,12 +150,32 @@ async function handleNext() {
     return;
   }
 
+  let existing = null;
+  if (t && typeof t.get === 'function') {
+    try {
+      existing = await t.get('board', 'private', 'alertDraft');
+    } catch (err) {
+      console.warn('Error reading alertDraft from Trello storage:', err);
+    }
+  }
+
+  if (!existing) {
+    try {
+      const stored = localStorage.getItem('alertDraft');
+      if (stored) {
+        existing = JSON.parse(stored);
+      }
+    } catch (err) {
+      console.warn('Error reading alertDraft from localStorage:', err);
+    }
+  }
+
   const draft = {
     alertName: nameInputValue,
     triggerType: selectedTriggerId,
-    // populated by later steps once built:
-    conditions: null,
-    recipients: null
+    // Preserve existing conditions only if alert type matches
+    conditions: existing && existing.triggerType === selectedTriggerId ? existing.conditions : null,
+    recipients: existing ? existing.recipients : null
   };
 
   if (t && typeof t.set === 'function') {
@@ -166,8 +192,8 @@ async function handleNext() {
     }
   }
 
-  // TODO: step 2 (Conditions) page not built yet — this should open conditions.html once it exists
   console.log('proceeding to step 2 with draft:', draft);
+  openConditions();
 }
 
 // Restore previously saved draft if any
@@ -198,8 +224,9 @@ async function restoreDraft() {
     if (existing.alertName && nameInput) {
       nameInput.value = existing.alertName;
     }
-    if (existing.triggerType) {
-      selectTrigger(existing.triggerType);
+    const triggerId = existing.triggerType === 'card-stuck' ? 'stuck-in-list' : existing.triggerType;
+    if (triggerId) {
+      selectTrigger(triggerId);
     }
   }
 }
