@@ -989,3 +989,72 @@ body {
   }
 }
 
+/* Radio Group & Condition Rows */
+.radio-group-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.radio-row .radio-input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.radio-row-label {
+  font-size: 13.5px;
+  color: var(--text-dark);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-number-input {
+  width: 62px;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--text-dark);
+  text-align: center;
+  border: 1.5px solid var(--border-color);
+  border-radius: 6px;
+  background-color: #FFFFFF;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.inline-number-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.inline-number-input:disabled {
+  background-color: #F8FAFC;
+  color: #94A3B8;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.inline-number-input.has-error {
+  border-color: var(--error);
+  background-color: var(--error-bg);
+}
+
+.radio-unit-text {
+  font-size: 13.5px;
+  color: var(--text-dark);
+}
+

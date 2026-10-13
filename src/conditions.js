@@ -303,8 +303,13 @@ async function initConditionsPage() {
   let memberCheckboxEl = null;
   let customFieldCheckboxEl = null;
 
+  let overdueRadioOnDueDate = null;
+  let overdueRadioByDays = null;
+  let overdueDaysInputEl = null;
+
   const listField = (schema.fields || []).find((f) => f.key === 'listId');
   const daysField = (schema.fields || []).find((f) => f.key === 'days');
+  const overdueConditionField = (schema.fields || []).find((f) => f.type === 'radio-overdue' || f.key === 'condition');
 
   // 1. List field (if present in schema)
   if (listField) {
@@ -402,6 +407,115 @@ async function initConditionsPage() {
     daysGroup.appendChild(daysError);
 
     formSection.appendChild(daysGroup);
+  }
+
+  // 3. Overdue Condition Radio Group (if present in schema)
+  if (overdueConditionField) {
+    const condGroup = document.createElement('div');
+    condGroup.className = 'form-group';
+
+    const condLabel = document.createElement('label');
+    condLabel.className = 'form-label';
+    condLabel.textContent = overdueConditionField.label || 'Condition';
+    condGroup.appendChild(condLabel);
+
+    const radioContainer = document.createElement('div');
+    radioContainer.className = 'radio-group-container';
+
+    // Option 1: On due date (overdue)
+    const row1 = document.createElement('label');
+    row1.className = 'radio-row';
+
+    overdueRadioOnDueDate = document.createElement('input');
+    overdueRadioOnDueDate.type = 'radio';
+    overdueRadioOnDueDate.name = 'overdue-timing';
+    overdueRadioOnDueDate.value = 'on-due-date';
+    overdueRadioOnDueDate.className = 'radio-input';
+    overdueRadioOnDueDate.checked = true;
+
+    const row1Label = document.createElement('span');
+    row1Label.className = 'radio-row-label';
+    row1Label.textContent = 'On due date (overdue)';
+
+    row1.appendChild(overdueRadioOnDueDate);
+    row1.appendChild(row1Label);
+    radioContainer.appendChild(row1);
+
+    // Option 2: Overdue by more than [ 1 ] day(s)
+    const row2 = document.createElement('div');
+    row2.className = 'radio-row';
+
+    overdueRadioByDays = document.createElement('input');
+    overdueRadioByDays.type = 'radio';
+    overdueRadioByDays.name = 'overdue-timing';
+    overdueRadioByDays.value = 'overdue-by-days';
+    overdueRadioByDays.className = 'radio-input';
+
+    const row2Label = document.createElement('label');
+    row2Label.className = 'radio-row-label';
+    row2Label.textContent = 'Overdue by more than';
+    row2Label.addEventListener('click', () => {
+      overdueRadioByDays.checked = true;
+      updateOverdueRadioState();
+      if (overdueDaysInputEl) overdueDaysInputEl.focus();
+    });
+
+    overdueDaysInputEl = document.createElement('input');
+    overdueDaysInputEl.type = 'number';
+    overdueDaysInputEl.id = 'overdue-days-input';
+    overdueDaysInputEl.className = 'inline-number-input';
+    overdueDaysInputEl.min = '1';
+    overdueDaysInputEl.max = '365';
+    overdueDaysInputEl.value = '1';
+    overdueDaysInputEl.disabled = true;
+
+    const row2Unit = document.createElement('span');
+    row2Unit.className = 'radio-unit-text';
+    row2Unit.textContent = 'day(s)';
+
+    row2.appendChild(overdueRadioByDays);
+    row2.appendChild(row2Label);
+    row2.appendChild(overdueDaysInputEl);
+    row2.appendChild(row2Unit);
+    radioContainer.appendChild(row2);
+
+    condGroup.appendChild(radioContainer);
+
+    const overdueError = document.createElement('span');
+    overdueError.id = 'overdue-days-error';
+    overdueError.className = 'error-message';
+    overdueError.textContent = 'Please enter a whole number of days between 1 and 365';
+    condGroup.appendChild(overdueError);
+
+    formSection.appendChild(condGroup);
+
+    function updateOverdueRadioState() {
+      if (overdueRadioByDays.checked) {
+        overdueDaysInputEl.disabled = false;
+      } else {
+        overdueDaysInputEl.disabled = true;
+        overdueDaysInputEl.classList.remove('has-error');
+        overdueError.classList.remove('visible');
+      }
+    }
+
+    overdueRadioOnDueDate.addEventListener('change', updateOverdueRadioState);
+    overdueRadioByDays.addEventListener('change', () => {
+      updateOverdueRadioState();
+      if (overdueDaysInputEl) overdueDaysInputEl.focus();
+    });
+
+    overdueDaysInputEl.addEventListener('focus', () => {
+      if (!overdueRadioByDays.checked) {
+        overdueRadioByDays.checked = true;
+        updateOverdueRadioState();
+      }
+    });
+
+    overdueDaysInputEl.addEventListener('input', () => {
+      overdueDaysInputEl.classList.remove('has-error');
+      overdueError.classList.remove('visible');
+    });
   }
 
   // 3. Additional filters section
@@ -878,6 +992,24 @@ async function initConditionsPage() {
         updateCustomFieldValueOptions(cond.filters.customField.fieldId, cond.filters.customField.valueId);
       }
     }
+    if (overdueConditionField) {
+      const selectedTiming = cond.timing || cond.condition;
+      if (selectedTiming === 'overdue-by-days') {
+        if (overdueRadioByDays) {
+          overdueRadioByDays.checked = true;
+          if (overdueDaysInputEl) {
+            overdueDaysInputEl.disabled = false;
+            const daysVal = cond.overdueDays != null ? cond.overdueDays : (cond.days != null ? cond.days : 1);
+            overdueDaysInputEl.value = String(daysVal);
+          }
+        }
+      } else {
+        if (overdueRadioOnDueDate) {
+          overdueRadioOnDueDate.checked = true;
+          if (overdueDaysInputEl) overdueDaysInputEl.disabled = true;
+        }
+      }
+    }
   }
 
   // Collect form state helper
@@ -891,6 +1023,19 @@ async function initConditionsPage() {
 
     const defaultDays = daysField && daysField.default != null ? daysField.default : 3;
     const daysNum = daysInputEl ? parseInt(daysInputEl.value, 10) : defaultDays;
+
+    let overdueTiming = null;
+    let overdueDays = null;
+    if (overdueConditionField) {
+      if (overdueRadioByDays && overdueRadioByDays.checked) {
+        overdueTiming = 'overdue-by-days';
+        const parsed = overdueDaysInputEl ? parseInt(overdueDaysInputEl.value, 10) : 1;
+        overdueDays = isNaN(parsed) ? 1 : parsed;
+      } else {
+        overdueTiming = 'on-due-date';
+        overdueDays = 0;
+      }
+    }
 
     // Filters
     let filterLabels = null;
@@ -935,17 +1080,29 @@ async function initConditionsPage() {
       };
     }
 
-    return {
+    const conditionsResult = {
       alertType: draft.triggerType,
       listId: listId || null,
       listName: listName || (listField && !listField.required ? 'Any list' : ''),
-      days: isNaN(daysNum) ? defaultDays : daysNum,
       filters: {
         labels: filterLabels,
         members: filterMembers,
         customField: filterCustomField
       }
     };
+
+    if (daysField) {
+      conditionsResult.days = isNaN(daysNum) ? defaultDays : daysNum;
+    }
+
+    if (overdueConditionField) {
+      conditionsResult.timing = overdueTiming;
+      conditionsResult.condition = overdueTiming;
+      conditionsResult.days = overdueTiming === 'overdue-by-days' ? overdueDays : 0;
+      conditionsResult.overdueDays = overdueDays;
+    }
+
+    return conditionsResult;
   }
 
   // Handle Back
@@ -981,7 +1138,7 @@ async function initConditionsPage() {
       if (listError) listError.classList.remove('visible');
     }
 
-    // 2. Validate Days
+    // 2. Validate Days (if present)
     if (daysField && daysField.required !== false) {
       const daysRaw = daysInputEl ? daysInputEl.value.trim() : '';
       const daysNum = Number(daysRaw);
@@ -998,6 +1155,22 @@ async function initConditionsPage() {
       } else {
         if (daysSuffixGroup) daysSuffixGroup.classList.remove('has-error');
         if (daysError) daysError.classList.remove('visible');
+      }
+    }
+
+    // 3. Validate Overdue Condition (if present)
+    if (overdueConditionField && overdueRadioByDays && overdueRadioByDays.checked) {
+      const raw = overdueDaysInputEl ? overdueDaysInputEl.value.trim() : '';
+      const num = Number(raw);
+      const overdueError = document.getElementById('overdue-days-error');
+      if (!raw || !Number.isInteger(num) || num < 1 || num > 365) {
+        if (overdueDaysInputEl) overdueDaysInputEl.classList.add('has-error');
+        if (overdueError) overdueError.classList.add('visible');
+        isValid = false;
+        if (!firstErrorEl) firstErrorEl = overdueDaysInputEl;
+      } else {
+        if (overdueDaysInputEl) overdueDaysInputEl.classList.remove('has-error');
+        if (overdueError) overdueError.classList.remove('visible');
       }
     }
 

@@ -13,7 +13,22 @@ export const conditionSchemas = {
     ],
     filters: ['label', 'member', 'customField']
   },
-  'overdue-in-list': null,      // TODO
+  'overdue-in-list': {
+    fields: [
+      { key: 'listId', type: 'list-select', label: 'List', required: true, placeholder: 'Select a list' },
+      {
+        key: 'condition',
+        type: 'radio-overdue',
+        label: 'Condition',
+        default: 'on-due-date',
+        options: [
+          { value: 'on-due-date', label: 'On due date (overdue)' },
+          { value: 'overdue-by-days', label: 'Overdue by more than', unit: 'day(s)', defaultDays: 1, minDays: 1, maxDays: 365 }
+        ]
+      }
+    ],
+    filters: ['label', 'member', 'customField']
+  },
   'due-soon-unassigned': null,  // TODO
   'custom-condition': null      // TODO
 };
