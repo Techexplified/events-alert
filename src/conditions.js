@@ -303,99 +303,106 @@ async function initConditionsPage() {
   let memberCheckboxEl = null;
   let customFieldCheckboxEl = null;
 
-  // 1. List field
-  const listGroup = document.createElement('div');
-  listGroup.className = 'form-group';
-  const listLabel = document.createElement('label');
-  listLabel.className = 'form-label';
-  listLabel.htmlFor = 'conditions-list-select';
-  listLabel.textContent = 'List';
-  listGroup.appendChild(listLabel);
+  const listField = (schema.fields || []).find((f) => f.key === 'listId');
+  const daysField = (schema.fields || []).find((f) => f.key === 'days');
 
-  const listWrapper = document.createElement('div');
-  listWrapper.className = 'select-wrapper';
+  // 1. List field (if present in schema)
+  if (listField) {
+    const listGroup = document.createElement('div');
+    listGroup.className = 'form-group';
+    const listLabel = document.createElement('label');
+    listLabel.className = 'form-label';
+    listLabel.htmlFor = 'conditions-list-select';
+    listLabel.textContent = listField.label || 'List';
+    listGroup.appendChild(listLabel);
 
-  listSelectEl = document.createElement('select');
-  listSelectEl.id = 'conditions-list-select';
-  listSelectEl.className = 'form-select';
+    const listWrapper = document.createElement('div');
+    listWrapper.className = 'select-wrapper';
 
-  const defaultListOpt = document.createElement('option');
-  defaultListOpt.value = '';
+    listSelectEl = document.createElement('select');
+    listSelectEl.id = 'conditions-list-select';
+    listSelectEl.className = 'form-select';
 
-  if (!lists || lists.length === 0) {
-    defaultListOpt.textContent = 'No lists on this board';
-    listSelectEl.appendChild(defaultListOpt);
-    listSelectEl.disabled = true;
-  } else {
-    defaultListOpt.textContent = 'Select a list';
-    defaultListOpt.disabled = true;
-    defaultListOpt.selected = true;
-    listSelectEl.appendChild(defaultListOpt);
+    const defaultListOpt = document.createElement('option');
+    defaultListOpt.value = '';
 
-    lists.forEach((item) => {
-      const opt = document.createElement('option');
-      opt.value = item.id;
-      // Security: render text with textContent
-      opt.textContent = item.name;
-      listSelectEl.appendChild(opt);
-    });
+    if (!lists || lists.length === 0) {
+      defaultListOpt.textContent = 'No lists on this board';
+      listSelectEl.appendChild(defaultListOpt);
+      listSelectEl.disabled = true;
+    } else {
+      defaultListOpt.textContent = listField.placeholder || (listField.required ? 'Select a list' : 'Any list');
+      defaultListOpt.disabled = !!listField.required;
+      defaultListOpt.selected = true;
+      listSelectEl.appendChild(defaultListOpt);
+
+      lists.forEach((item) => {
+        const opt = document.createElement('option');
+        opt.value = item.id;
+        // Security: render text with textContent
+        opt.textContent = item.name;
+        listSelectEl.appendChild(opt);
+      });
+    }
+
+    listWrapper.appendChild(listSelectEl);
+
+    const listChevron = document.createElement('span');
+    listChevron.className = 'select-chevron';
+    listChevron.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"></polyline>
+      </svg>
+    `;
+    listWrapper.appendChild(listChevron);
+    listGroup.appendChild(listWrapper);
+
+    const listError = document.createElement('span');
+    listError.id = 'list-error';
+    listError.className = 'error-message';
+    listError.textContent = 'Please select a list';
+    listGroup.appendChild(listError);
+
+    formSection.appendChild(listGroup);
   }
 
-  listWrapper.appendChild(listSelectEl);
+  // 2. Number of days field (if present in schema)
+  if (daysField) {
+    const daysGroup = document.createElement('div');
+    daysGroup.className = 'form-group';
+    const daysLabel = document.createElement('label');
+    daysLabel.className = 'form-label';
+    daysLabel.htmlFor = 'conditions-days-input';
+    daysLabel.textContent = daysField.label || 'Number of days';
+    daysGroup.appendChild(daysLabel);
 
-  const listChevron = document.createElement('span');
-  listChevron.className = 'select-chevron';
-  listChevron.innerHTML = `
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="6 9 12 15 18 9"></polyline>
-    </svg>
-  `;
-  listWrapper.appendChild(listChevron);
-  listGroup.appendChild(listWrapper);
+    const daysSuffixGroup = document.createElement('div');
+    daysSuffixGroup.className = 'input-group-suffix';
 
-  const listError = document.createElement('span');
-  listError.id = 'list-error';
-  listError.className = 'error-message';
-  listError.textContent = 'Please select a list';
-  listGroup.appendChild(listError);
+    daysInputEl = document.createElement('input');
+    daysInputEl.type = 'number';
+    daysInputEl.id = 'conditions-days-input';
+    daysInputEl.className = 'suffix-input';
+    daysInputEl.min = String(daysField.min != null ? daysField.min : 1);
+    daysInputEl.max = String(daysField.max != null ? daysField.max : 365);
+    daysInputEl.value = String(daysField.default != null ? daysField.default : 3);
+    daysSuffixGroup.appendChild(daysInputEl);
 
-  formSection.appendChild(listGroup);
+    const daysBadge = document.createElement('span');
+    daysBadge.className = 'suffix-badge';
+    daysBadge.textContent = daysField.unit || 'days';
+    daysSuffixGroup.appendChild(daysBadge);
 
-  // 2. Number of days field
-  const daysGroup = document.createElement('div');
-  daysGroup.className = 'form-group';
-  const daysLabel = document.createElement('label');
-  daysLabel.className = 'form-label';
-  daysLabel.htmlFor = 'conditions-days-input';
-  daysLabel.textContent = 'Number of days';
-  daysGroup.appendChild(daysLabel);
+    daysGroup.appendChild(daysSuffixGroup);
 
-  const daysSuffixGroup = document.createElement('div');
-  daysSuffixGroup.className = 'input-group-suffix';
+    const daysError = document.createElement('span');
+    daysError.id = 'days-error';
+    daysError.className = 'error-message';
+    daysError.textContent = 'Please enter a whole number of days between 1 and 365';
+    daysGroup.appendChild(daysError);
 
-  daysInputEl = document.createElement('input');
-  daysInputEl.type = 'number';
-  daysInputEl.id = 'conditions-days-input';
-  daysInputEl.className = 'suffix-input';
-  daysInputEl.min = '1';
-  daysInputEl.max = '365';
-  daysInputEl.value = '3';
-  daysSuffixGroup.appendChild(daysInputEl);
-
-  const daysBadge = document.createElement('span');
-  daysBadge.className = 'suffix-badge';
-  daysBadge.textContent = 'days';
-  daysSuffixGroup.appendChild(daysBadge);
-
-  daysGroup.appendChild(daysSuffixGroup);
-
-  const daysError = document.createElement('span');
-  daysError.id = 'days-error';
-  daysError.className = 'error-message';
-  daysError.textContent = 'Please enter a whole number of days between 1 and 365';
-  daysGroup.appendChild(daysError);
-
-  formSection.appendChild(daysGroup);
+    formSection.appendChild(daysGroup);
+  }
 
   // 3. Additional filters section
   const filtersSection = document.createElement('div');
@@ -800,15 +807,22 @@ async function initConditionsPage() {
   });
 
   // Input change listeners to clear error messages
-  listSelectEl.addEventListener('change', () => {
-    listSelectEl.classList.remove('has-error');
-    listError.classList.remove('visible');
-  });
+  if (listSelectEl) {
+    listSelectEl.addEventListener('change', () => {
+      listSelectEl.classList.remove('has-error');
+      const listError = document.getElementById('list-error');
+      if (listError) listError.classList.remove('visible');
+    });
+  }
 
-  daysInputEl.addEventListener('input', () => {
-    daysSuffixGroup.classList.remove('has-error');
-    daysError.classList.remove('visible');
-  });
+  if (daysInputEl) {
+    daysInputEl.addEventListener('input', () => {
+      const daysSuffixGroup = daysInputEl.closest('.input-group-suffix');
+      if (daysSuffixGroup) daysSuffixGroup.classList.remove('has-error');
+      const daysError = document.getElementById('days-error');
+      if (daysError) daysError.classList.remove('visible');
+    });
+  }
 
   // Footer Actions: Back (left) and Next (right)
   const actions = document.createElement('div');
@@ -833,26 +847,30 @@ async function initConditionsPage() {
   // Prefill from draft.conditions if present and matching alertType
   if (draft.conditions && draft.conditions.alertType === draft.triggerType) {
     const cond = draft.conditions;
-    if (cond.listId && listSelectEl) {
-      listSelectEl.value = cond.listId;
+    if (listSelectEl) {
+      if (cond.listId) {
+        listSelectEl.value = cond.listId;
+      } else if (listField && !listField.required) {
+        listSelectEl.value = '';
+      }
     }
     if (typeof cond.days === 'number' && daysInputEl) {
       daysInputEl.value = String(cond.days);
     }
     if (cond.filters) {
-      if (Array.isArray(cond.filters.labels) && cond.filters.labels.length > 0) {
+      if (Array.isArray(cond.filters.labels) && cond.filters.labels.length > 0 && labelCheckboxEl) {
         labelCheckboxEl.checked = true;
         labelCard.classList.remove('disabled');
         labelsMultiSelect.setDisabled(false);
         labelsMultiSelect.setSelectedIds(cond.filters.labels.map((l) => l.id));
       }
-      if (Array.isArray(cond.filters.members) && cond.filters.members.length > 0) {
+      if (Array.isArray(cond.filters.members) && cond.filters.members.length > 0 && memberCheckboxEl) {
         memberCheckboxEl.checked = true;
         memberCard.classList.remove('disabled');
         membersMultiSelect.setDisabled(false);
         membersMultiSelect.setSelectedIds(cond.filters.members.map((m) => m.id));
       }
-      if (cond.filters.customField && cond.filters.customField.fieldId) {
+      if (cond.filters.customField && cond.filters.customField.fieldId && customFieldCheckboxEl) {
         customFieldCheckboxEl.checked = true;
         cfCard.classList.remove('disabled');
         customFieldSelectEl.disabled = false;
@@ -866,9 +884,13 @@ async function initConditionsPage() {
   function collectFormState() {
     const listId = listSelectEl ? listSelectEl.value : '';
     const selectedListOpt = listSelectEl ? listSelectEl.options[listSelectEl.selectedIndex] : null;
-    const listName = selectedListOpt && selectedListOpt.value ? selectedListOpt.textContent : '';
+    let listName = '';
+    if (selectedListOpt) {
+      listName = selectedListOpt.textContent;
+    }
 
-    const daysNum = daysInputEl ? parseInt(daysInputEl.value, 10) : 3;
+    const defaultDays = daysField && daysField.default != null ? daysField.default : 3;
+    const daysNum = daysInputEl ? parseInt(daysInputEl.value, 10) : defaultDays;
 
     // Filters
     let filterLabels = null;
@@ -915,9 +937,9 @@ async function initConditionsPage() {
 
     return {
       alertType: draft.triggerType,
-      listId,
-      listName,
-      days: isNaN(daysNum) ? 3 : daysNum,
+      listId: listId || null,
+      listName: listName || (listField && !listField.required ? 'Any list' : ''),
+      days: isNaN(daysNum) ? defaultDays : daysNum,
       filters: {
         labels: filterLabels,
         members: filterMembers,
@@ -939,29 +961,44 @@ async function initConditionsPage() {
     let isValid = true;
     let firstErrorEl = null;
 
-    // 1. Validate List
-    const selectedListId = listSelectEl ? listSelectEl.value : '';
-    if (!selectedListId) {
-      listSelectEl.classList.add('has-error');
-      listError.classList.add('visible');
-      isValid = false;
-      if (!firstErrorEl) firstErrorEl = listSelectEl;
-    } else {
+    // 1. Validate List (only if required)
+    if (listField && listField.required) {
+      const selectedListId = listSelectEl ? listSelectEl.value : '';
+      if (!selectedListId) {
+        listSelectEl.classList.add('has-error');
+        const listError = document.getElementById('list-error');
+        if (listError) listError.classList.add('visible');
+        isValid = false;
+        if (!firstErrorEl) firstErrorEl = listSelectEl;
+      } else {
+        listSelectEl.classList.remove('has-error');
+        const listError = document.getElementById('list-error');
+        if (listError) listError.classList.remove('visible');
+      }
+    } else if (listSelectEl) {
       listSelectEl.classList.remove('has-error');
-      listError.classList.remove('visible');
+      const listError = document.getElementById('list-error');
+      if (listError) listError.classList.remove('visible');
     }
 
     // 2. Validate Days
-    const daysRaw = daysInputEl ? daysInputEl.value.trim() : '';
-    const daysNum = Number(daysRaw);
-    if (!daysRaw || !Number.isInteger(daysNum) || daysNum < 1 || daysNum > 365) {
-      daysSuffixGroup.classList.add('has-error');
-      daysError.classList.add('visible');
-      isValid = false;
-      if (!firstErrorEl) firstErrorEl = daysInputEl;
-    } else {
-      daysSuffixGroup.classList.remove('has-error');
-      daysError.classList.remove('visible');
+    if (daysField && daysField.required !== false) {
+      const daysRaw = daysInputEl ? daysInputEl.value.trim() : '';
+      const daysNum = Number(daysRaw);
+      const minDays = daysField.min != null ? daysField.min : 1;
+      const maxDays = daysField.max != null ? daysField.max : 365;
+      const daysSuffixGroup = daysInputEl ? daysInputEl.closest('.input-group-suffix') : null;
+      const daysError = document.getElementById('days-error');
+
+      if (!daysRaw || !Number.isInteger(daysNum) || daysNum < minDays || daysNum > maxDays) {
+        if (daysSuffixGroup) daysSuffixGroup.classList.add('has-error');
+        if (daysError) daysError.classList.add('visible');
+        isValid = false;
+        if (!firstErrorEl) firstErrorEl = daysInputEl;
+      } else {
+        if (daysSuffixGroup) daysSuffixGroup.classList.remove('has-error');
+        if (daysError) daysError.classList.remove('visible');
+      }
     }
 
     // 3. Validate Filters if checked
