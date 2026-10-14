@@ -9,6 +9,7 @@ export default defineConfig({
         home: resolve(__dirname, 'home.html'),
         createAlert: resolve(__dirname, 'create-alert.html'),
         conditions: resolve(__dirname, 'conditions.html'),
+        recipients: resolve(__dirname, 'recipients.html'),
         authorized: resolve(__dirname, 'authorized.html')
       }
     }

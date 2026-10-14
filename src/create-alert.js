@@ -3,7 +3,8 @@ import { alertTypes, getIconSvg } from './alert-types.js';
 import { renderStepper } from './stepper.js';
 
 // Initialize the Trello Power-Up iframe connector safely
-const t = typeof window.TrelloPowerUp !== 'undefined' ? window.TrelloPowerUp.iframe() : null;
+const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
+const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe ? window.TrelloPowerUp.iframe() : null;
 
 let selectedTriggerId = null;
 

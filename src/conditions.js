@@ -5,7 +5,8 @@ import { conditionSchemas } from './conditions-schemas.js';
 import { createMultiSelect } from './multi-select.js';
 
 // Initialize the Trello Power-Up iframe connector safely
-const t = typeof window.TrelloPowerUp !== 'undefined' ? window.TrelloPowerUp.iframe() : null;
+const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
+const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe ? window.TrelloPowerUp.iframe() : null;
 
 // Trello color palette mapping for label swatches
 const TRELLO_LABEL_COLORS = {
@@ -30,6 +31,11 @@ function openHome() {
 
 function openStep1() {
   const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./create-alert.html') : './create-alert.html';
+  window.location.href = targetUrl;
+}
+
+function openRecipients() {
+  const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./recipients.html') : './recipients.html';
   window.location.href = targetUrl;
 }
 
@@ -307,9 +313,14 @@ async function initConditionsPage() {
   let overdueRadioByDays = null;
   let overdueDaysInputEl = null;
 
+  let dueSoonRadioBeforeDueDate = null;
+  let dueSoonRadioOnDueDate = null;
+  let dueSoonDaysInputEl = null;
+
   const listField = (schema.fields || []).find((f) => f.key === 'listId');
   const daysField = (schema.fields || []).find((f) => f.key === 'days');
-  const overdueConditionField = (schema.fields || []).find((f) => f.type === 'radio-overdue' || f.key === 'condition');
+  const overdueConditionField = (schema.fields || []).find((f) => f.type === 'radio-overdue' || (f.key === 'condition' && f.type !== 'radio-due-soon'));
+  const dueSoonConditionField = (schema.fields || []).find((f) => f.type === 'radio-due-soon' || f.key === 'dueDateCondition');
 
   // 1. List field (if present in schema)
   if (listField) {
@@ -515,6 +526,119 @@ async function initConditionsPage() {
     overdueDaysInputEl.addEventListener('input', () => {
       overdueDaysInputEl.classList.remove('has-error');
       overdueError.classList.remove('visible');
+    });
+  }
+
+  // 4. Due Soon Condition Radio Group (if present in schema)
+  if (dueSoonConditionField) {
+    const condGroup = document.createElement('div');
+    condGroup.className = 'form-group';
+
+    const condLabel = document.createElement('label');
+    condLabel.className = 'form-label';
+    condLabel.textContent = dueSoonConditionField.label || 'Due date condition';
+    condGroup.appendChild(condLabel);
+
+    const radioContainer = document.createElement('div');
+    radioContainer.className = 'radio-group-container';
+
+    const optBefore = (dueSoonConditionField.options || []).find((o) => o.value === 'before-due-date') || {};
+    const defaultDays = optBefore.defaultDays != null ? optBefore.defaultDays : 2;
+    const minDays = optBefore.minDays != null ? optBefore.minDays : 1;
+    const maxDays = optBefore.maxDays != null ? optBefore.maxDays : 365;
+
+    // Option 1: Before due date [ 2 ] day(s)
+    const row1 = document.createElement('div');
+    row1.className = 'radio-row';
+
+    dueSoonRadioBeforeDueDate = document.createElement('input');
+    dueSoonRadioBeforeDueDate.type = 'radio';
+    dueSoonRadioBeforeDueDate.name = 'due-soon-timing';
+    dueSoonRadioBeforeDueDate.value = 'before-due-date';
+    dueSoonRadioBeforeDueDate.className = 'radio-input';
+    dueSoonRadioBeforeDueDate.checked = true;
+
+    const row1Label = document.createElement('label');
+    row1Label.className = 'radio-row-label';
+    row1Label.textContent = optBefore.label || 'Before due date';
+    row1Label.addEventListener('click', () => {
+      dueSoonRadioBeforeDueDate.checked = true;
+      updateDueSoonRadioState();
+      if (dueSoonDaysInputEl) dueSoonDaysInputEl.focus();
+    });
+
+    dueSoonDaysInputEl = document.createElement('input');
+    dueSoonDaysInputEl.type = 'number';
+    dueSoonDaysInputEl.id = 'due-soon-days-input';
+    dueSoonDaysInputEl.className = 'inline-number-input';
+    dueSoonDaysInputEl.min = String(minDays);
+    dueSoonDaysInputEl.max = String(maxDays);
+    dueSoonDaysInputEl.value = String(defaultDays);
+    dueSoonDaysInputEl.disabled = false;
+
+    const row1Unit = document.createElement('span');
+    row1Unit.className = 'radio-unit-text';
+    row1Unit.textContent = optBefore.unit || 'day(s)';
+
+    row1.appendChild(dueSoonRadioBeforeDueDate);
+    row1.appendChild(row1Label);
+    row1.appendChild(dueSoonDaysInputEl);
+    row1.appendChild(row1Unit);
+    radioContainer.appendChild(row1);
+
+    // Option 2: On due date
+    const optOnDue = (dueSoonConditionField.options || []).find((o) => o.value === 'on-due-date') || {};
+    const row2 = document.createElement('label');
+    row2.className = 'radio-row';
+
+    dueSoonRadioOnDueDate = document.createElement('input');
+    dueSoonRadioOnDueDate.type = 'radio';
+    dueSoonRadioOnDueDate.name = 'due-soon-timing';
+    dueSoonRadioOnDueDate.value = 'on-due-date';
+    dueSoonRadioOnDueDate.className = 'radio-input';
+    dueSoonRadioOnDueDate.checked = false;
+
+    const row2Label = document.createElement('span');
+    row2Label.className = 'radio-row-label';
+    row2Label.textContent = optOnDue.label || 'On due date';
+
+    row2.appendChild(dueSoonRadioOnDueDate);
+    row2.appendChild(row2Label);
+    radioContainer.appendChild(row2);
+
+    condGroup.appendChild(radioContainer);
+
+    const dueSoonError = document.createElement('span');
+    dueSoonError.id = 'due-soon-days-error';
+    dueSoonError.className = 'error-message';
+    dueSoonError.textContent = `Please enter a whole number of days between ${minDays} and ${maxDays}`;
+    condGroup.appendChild(dueSoonError);
+
+    formSection.appendChild(condGroup);
+
+    function updateDueSoonRadioState() {
+      if (dueSoonRadioBeforeDueDate.checked) {
+        dueSoonDaysInputEl.disabled = false;
+      } else {
+        dueSoonDaysInputEl.disabled = true;
+        dueSoonDaysInputEl.classList.remove('has-error');
+        dueSoonError.classList.remove('visible');
+      }
+    }
+
+    dueSoonRadioBeforeDueDate.addEventListener('change', updateDueSoonRadioState);
+    dueSoonRadioOnDueDate.addEventListener('change', updateDueSoonRadioState);
+
+    dueSoonDaysInputEl.addEventListener('focus', () => {
+      if (!dueSoonRadioBeforeDueDate.checked) {
+        dueSoonRadioBeforeDueDate.checked = true;
+        updateDueSoonRadioState();
+      }
+    });
+
+    dueSoonDaysInputEl.addEventListener('input', () => {
+      dueSoonDaysInputEl.classList.remove('has-error');
+      dueSoonError.classList.remove('visible');
     });
   }
 
@@ -1010,6 +1134,29 @@ async function initConditionsPage() {
         }
       }
     }
+    if (dueSoonConditionField) {
+      const selectedTiming = cond.dueDateCondition || cond.timing || cond.condition || 'before-due-date';
+      const optBefore = (dueSoonConditionField.options || []).find((o) => o.value === 'before-due-date') || {};
+      const defaultDays = optBefore.defaultDays != null ? optBefore.defaultDays : 2;
+
+      if (selectedTiming === 'on-due-date') {
+        if (dueSoonRadioOnDueDate) {
+          dueSoonRadioOnDueDate.checked = true;
+          if (dueSoonDaysInputEl) {
+            dueSoonDaysInputEl.disabled = true;
+          }
+        }
+      } else {
+        if (dueSoonRadioBeforeDueDate) {
+          dueSoonRadioBeforeDueDate.checked = true;
+          if (dueSoonDaysInputEl) {
+            dueSoonDaysInputEl.disabled = false;
+            const daysVal = cond.dueSoonDays != null ? cond.dueSoonDays : (cond.days != null ? cond.days : defaultDays);
+            dueSoonDaysInputEl.value = String(daysVal);
+          }
+        }
+      }
+    }
   }
 
   // Collect form state helper
@@ -1034,6 +1181,22 @@ async function initConditionsPage() {
       } else {
         overdueTiming = 'on-due-date';
         overdueDays = 0;
+      }
+    }
+
+    let dueSoonTiming = null;
+    let dueSoonDays = null;
+    if (dueSoonConditionField) {
+      const optBefore = (dueSoonConditionField.options || []).find((o) => o.value === 'before-due-date') || {};
+      const defaultDays = optBefore.defaultDays != null ? optBefore.defaultDays : 2;
+
+      if (dueSoonRadioBeforeDueDate && dueSoonRadioBeforeDueDate.checked) {
+        dueSoonTiming = 'before-due-date';
+        const parsed = dueSoonDaysInputEl ? parseInt(dueSoonDaysInputEl.value, 10) : defaultDays;
+        dueSoonDays = isNaN(parsed) ? defaultDays : parsed;
+      } else {
+        dueSoonTiming = 'on-due-date';
+        dueSoonDays = 0;
       }
     }
 
@@ -1100,6 +1263,14 @@ async function initConditionsPage() {
       conditionsResult.condition = overdueTiming;
       conditionsResult.days = overdueTiming === 'overdue-by-days' ? overdueDays : 0;
       conditionsResult.overdueDays = overdueDays;
+    }
+
+    if (dueSoonConditionField) {
+      conditionsResult.dueDateCondition = dueSoonTiming;
+      conditionsResult.condition = dueSoonTiming;
+      conditionsResult.timing = dueSoonTiming;
+      conditionsResult.days = dueSoonTiming === 'before-due-date' ? dueSoonDays : 0;
+      conditionsResult.dueSoonDays = dueSoonDays;
     }
 
     return conditionsResult;
@@ -1174,6 +1345,26 @@ async function initConditionsPage() {
       }
     }
 
+    // 3b. Validate Due Soon Condition (if present)
+    if (dueSoonConditionField && dueSoonRadioBeforeDueDate && dueSoonRadioBeforeDueDate.checked) {
+      const raw = dueSoonDaysInputEl ? dueSoonDaysInputEl.value.trim() : '';
+      const num = Number(raw);
+      const optBefore = (dueSoonConditionField.options || []).find((o) => o.value === 'before-due-date') || {};
+      const minDays = optBefore.minDays != null ? optBefore.minDays : 1;
+      const maxDays = optBefore.maxDays != null ? optBefore.maxDays : 365;
+      const dueSoonError = document.getElementById('due-soon-days-error');
+
+      if (!raw || !Number.isInteger(num) || num < minDays || num > maxDays) {
+        if (dueSoonDaysInputEl) dueSoonDaysInputEl.classList.add('has-error');
+        if (dueSoonError) dueSoonError.classList.add('visible');
+        isValid = false;
+        if (!firstErrorEl) firstErrorEl = dueSoonDaysInputEl;
+      } else {
+        if (dueSoonDaysInputEl) dueSoonDaysInputEl.classList.remove('has-error');
+        if (dueSoonError) dueSoonError.classList.remove('visible');
+      }
+    }
+
     // 3. Validate Filters if checked
     if (labelCheckboxEl && labelCheckboxEl.checked) {
       const labelIds = labelsMultiSelect.getSelectedIds();
@@ -1234,8 +1425,7 @@ async function initConditionsPage() {
 
     await persistDraft(draft);
 
-    // TODO: step 3 (Recipients) page not built yet
-    console.log('proceeding to step 3 (Recipients) with draft:', draft);
+    openRecipients();
   });
 }
 

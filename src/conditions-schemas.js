@@ -29,6 +29,21 @@ export const conditionSchemas = {
     ],
     filters: ['label', 'member', 'customField']
   },
-  'due-soon-unassigned': null,  // TODO
+  'due-soon-unassigned': {
+    fields: [
+      { key: 'listId', type: 'list-select', label: 'List (optional)', required: false, placeholder: 'Any list' },
+      {
+        key: 'dueDateCondition',
+        type: 'radio-due-soon',
+        label: 'Due date condition',
+        default: 'before-due-date',
+        options: [
+          { value: 'before-due-date', label: 'Before due date', unit: 'day(s)', defaultDays: 2, minDays: 1, maxDays: 365 },
+          { value: 'on-due-date', label: 'On due date' }
+        ]
+      }
+    ],
+    filters: ['label', 'member', 'customField']
+  },
   'custom-condition': null      // TODO
 };

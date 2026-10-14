@@ -2,7 +2,8 @@
 import { alertTypes, getIconSvg } from './alert-types.js';
 
 // Initialize the Trello Power-Up iframe connector safely
-const t = typeof window.TrelloPowerUp !== 'undefined' ? window.TrelloPowerUp.iframe() : null;
+const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
+const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe ? window.TrelloPowerUp.iframe() : null;
 
 function openCreateAlert() {
   const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./create-alert.html') : './create-alert.html';
