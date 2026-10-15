@@ -2,26 +2,13 @@
 import { alertTypes, getIconSvg } from './alert-types.js';
 import { renderStepper } from './stepper.js';
 import { conditionSchemas } from './conditions-schemas.js';
-import { createMultiSelect } from './multi-select.js';
+import { fetchBoardData } from './board-data.js';
+import { renderConditionField } from './condition-fields.js';
+import { createFiltersEditor } from './filters-editor.js';
 
 // Initialize the Trello Power-Up iframe connector safely
 const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
 const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe ? window.TrelloPowerUp.iframe() : null;
-
-// Trello color palette mapping for label swatches
-const TRELLO_LABEL_COLORS = {
-  green: '#61BD4F',
-  yellow: '#F2D600',
-  orange: '#FF9F1A',
-  red: '#EB5A46',
-  purple: '#C377E0',
-  blue: '#0079BF',
-  sky: '#00C2E0',
-  lime: '#51E898',
-  pink: '#FF78CB',
-  black: '#344563',
-  default: '#B3BAC5'
-};
 
 // Navigation helpers
 function openHome() {
@@ -111,91 +98,6 @@ async function persistDraft(draft) {
   } catch (err) {
     console.warn('Error saving draft to localStorage:', err);
   }
-}
-
-// Fetch live board data in parallel with failure handling per source
-async function fetchBoardData() {
-  let lists = null;
-  let labels = null;
-  let members = null;
-  let customFields = null;
-
-  if (t && typeof t.lists === 'function') {
-    try {
-      const [listsRes, boardRes] = await Promise.all([
-        t.lists('id', 'name').catch((err) => {
-          console.warn('Failed to load lists:', err);
-          return null;
-        }),
-        t.board('labels', 'members').catch((err) => {
-          console.warn('Failed to load board labels/members:', err);
-          return { labels: null, members: null };
-        })
-      ]);
-
-      lists = Array.isArray(listsRes) ? listsRes : [];
-      labels = boardRes && Array.isArray(boardRes.labels) ? boardRes.labels : null;
-      members = boardRes && Array.isArray(boardRes.members) ? boardRes.members : null;
-    } catch (err) {
-      console.warn('Error fetching board data:', err);
-    }
-
-    try {
-      const b = await t.board('customFields');
-      customFields = b && Array.isArray(b.customFields) ? b.customFields : [];
-      // During development, log the raw customFields response once to confirm its shape
-      console.log('Raw customFields response:', customFields);
-    } catch (e) {
-      customFields = null; // Custom Fields Power-Up not available on this board
-      console.log('Custom Fields Power-Up not available on this board');
-    }
-  } else {
-    // Standalone fallback mock data for testing outside Trello
-    console.log('Running outside Trello iframe — using mock board data');
-    lists = [
-      { id: 'list-1', name: 'Product Development' },
-      { id: 'list-2', name: 'In Progress' },
-      { id: 'list-3', name: 'Code Review' },
-      { id: 'list-4', name: 'Done' }
-    ];
-    labels = [
-      { id: 'lbl-1', name: 'Bug', color: 'red' },
-      { id: 'lbl-2', name: 'Feature', color: 'blue' },
-      { id: 'lbl-3', name: 'Design', color: 'purple' },
-      { id: 'lbl-4', name: '', color: 'green' }
-    ];
-    members = [
-      { id: 'mem-1', fullName: 'Alex Rivera', username: 'alexr' },
-      { id: 'mem-2', fullName: 'Sarah Chen', username: 'sarahc' },
-      { id: 'mem-3', fullName: 'David Kim', username: 'davidk' }
-    ];
-    customFields = [
-      {
-        id: 'cf-1',
-        name: 'Priority',
-        type: 'list',
-        options: [
-          { id: 'opt-high', value: { text: 'High' } },
-          { id: 'opt-medium', value: { text: 'Medium' } },
-          { id: 'opt-low', value: { text: 'Low' } }
-        ]
-      },
-      {
-        id: 'cf-2',
-        name: 'Blocked',
-        type: 'checkbox'
-      },
-      {
-        id: 'cf-3',
-        name: 'Story Points',
-        type: 'number'
-      }
-    ];
-    // During development, log the raw customFields response once to confirm its shape
-    console.log('Raw customFields response:', customFields);
-  }
-
-  return { lists, labels, members, customFields };
 }
 
 // Build and render the Alert Type Banner
@@ -288,7 +190,7 @@ async function initConditionsPage() {
   }
 
   // Fetch live board data in parallel
-  const { lists, labels, members, customFields } = await fetchBoardData();
+  const boardData = await fetchBoardData(t);
 
   // Build the form
   container.innerHTML = '';
@@ -297,770 +199,54 @@ async function initConditionsPage() {
   const formSection = document.createElement('div');
   formSection.className = 'form-section';
 
-  // State handles
-  let listSelectEl = null;
-  let daysInputEl = null;
-  let labelsMultiSelect = null;
-  let membersMultiSelect = null;
-  let customFieldSelectEl = null;
-  let customFieldValueSelectEl = null;
+  const existingCond = (draft.conditions && draft.conditions.alertType === draft.triggerType) ? draft.conditions : {};
 
-  let labelCheckboxEl = null;
-  let memberCheckboxEl = null;
-  let customFieldCheckboxEl = null;
-
-  let overdueRadioOnDueDate = null;
-  let overdueRadioByDays = null;
-  let overdueDaysInputEl = null;
-
-  let dueSoonRadioBeforeDueDate = null;
-  let dueSoonRadioOnDueDate = null;
-  let dueSoonDaysInputEl = null;
-
-  const listField = (schema.fields || []).find((f) => f.key === 'listId');
-  const daysField = (schema.fields || []).find((f) => f.key === 'days');
-  const overdueConditionField = (schema.fields || []).find((f) => f.type === 'radio-overdue' || (f.key === 'condition' && f.type !== 'radio-due-soon'));
-  const dueSoonConditionField = (schema.fields || []).find((f) => f.type === 'radio-due-soon' || f.key === 'dueDateCondition');
-
-  // 1. List field (if present in schema)
-  if (listField) {
-    const listGroup = document.createElement('div');
-    listGroup.className = 'form-group';
-    const listLabel = document.createElement('label');
-    listLabel.className = 'form-label';
-    listLabel.htmlFor = 'conditions-list-select';
-    listLabel.textContent = listField.label || 'List';
-    listGroup.appendChild(listLabel);
-
-    const listWrapper = document.createElement('div');
-    listWrapper.className = 'select-wrapper';
-
-    listSelectEl = document.createElement('select');
-    listSelectEl.id = 'conditions-list-select';
-    listSelectEl.className = 'form-select';
-
-    const defaultListOpt = document.createElement('option');
-    defaultListOpt.value = '';
-
-    if (!lists || lists.length === 0) {
-      defaultListOpt.textContent = 'No lists on this board';
-      listSelectEl.appendChild(defaultListOpt);
-      listSelectEl.disabled = true;
-    } else {
-      defaultListOpt.textContent = listField.placeholder || (listField.required ? 'Select a list' : 'Any list');
-      defaultListOpt.disabled = !!listField.required;
-      defaultListOpt.selected = true;
-      listSelectEl.appendChild(defaultListOpt);
-
-      lists.forEach((item) => {
-        const opt = document.createElement('option');
-        opt.value = item.id;
-        // Security: render text with textContent
-        opt.textContent = item.name;
-        listSelectEl.appendChild(opt);
-      });
-    }
-
-    listWrapper.appendChild(listSelectEl);
-
-    const listChevron = document.createElement('span');
-    listChevron.className = 'select-chevron';
-    listChevron.innerHTML = `
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="6 9 12 15 18 9"></polyline>
-      </svg>
-    `;
-    listWrapper.appendChild(listChevron);
-    listGroup.appendChild(listWrapper);
-
-    const listError = document.createElement('span');
-    listError.id = 'list-error';
-    listError.className = 'error-message';
-    listError.textContent = 'Please select a list';
-    listGroup.appendChild(listError);
-
-    formSection.appendChild(listGroup);
-  }
-
-  // 2. Number of days field (if present in schema)
-  if (daysField) {
-    const daysGroup = document.createElement('div');
-    daysGroup.className = 'form-group';
-    const daysLabel = document.createElement('label');
-    daysLabel.className = 'form-label';
-    daysLabel.htmlFor = 'conditions-days-input';
-    daysLabel.textContent = daysField.label || 'Number of days';
-    daysGroup.appendChild(daysLabel);
-
-    const daysSuffixGroup = document.createElement('div');
-    daysSuffixGroup.className = 'input-group-suffix';
-
-    daysInputEl = document.createElement('input');
-    daysInputEl.type = 'number';
-    daysInputEl.id = 'conditions-days-input';
-    daysInputEl.className = 'suffix-input';
-    daysInputEl.min = String(daysField.min != null ? daysField.min : 1);
-    daysInputEl.max = String(daysField.max != null ? daysField.max : 365);
-    daysInputEl.value = String(daysField.default != null ? daysField.default : 3);
-    daysSuffixGroup.appendChild(daysInputEl);
-
-    const daysBadge = document.createElement('span');
-    daysBadge.className = 'suffix-badge';
-    daysBadge.textContent = daysField.unit || 'days';
-    daysSuffixGroup.appendChild(daysBadge);
-
-    daysGroup.appendChild(daysSuffixGroup);
-
-    const daysError = document.createElement('span');
-    daysError.id = 'days-error';
-    daysError.className = 'error-message';
-    daysError.textContent = 'Please enter a whole number of days between 1 and 365';
-    daysGroup.appendChild(daysError);
-
-    formSection.appendChild(daysGroup);
-  }
-
-  // 3. Overdue Condition Radio Group (if present in schema)
-  if (overdueConditionField) {
-    const condGroup = document.createElement('div');
-    condGroup.className = 'form-group';
-
-    const condLabel = document.createElement('label');
-    condLabel.className = 'form-label';
-    condLabel.textContent = overdueConditionField.label || 'Condition';
-    condGroup.appendChild(condLabel);
-
-    const radioContainer = document.createElement('div');
-    radioContainer.className = 'radio-group-container';
-
-    // Option 1: On due date (overdue)
-    const row1 = document.createElement('label');
-    row1.className = 'radio-row';
-
-    overdueRadioOnDueDate = document.createElement('input');
-    overdueRadioOnDueDate.type = 'radio';
-    overdueRadioOnDueDate.name = 'overdue-timing';
-    overdueRadioOnDueDate.value = 'on-due-date';
-    overdueRadioOnDueDate.className = 'radio-input';
-    overdueRadioOnDueDate.checked = true;
-
-    const row1Label = document.createElement('span');
-    row1Label.className = 'radio-row-label';
-    row1Label.textContent = 'On due date (overdue)';
-
-    row1.appendChild(overdueRadioOnDueDate);
-    row1.appendChild(row1Label);
-    radioContainer.appendChild(row1);
-
-    // Option 2: Overdue by more than [ 1 ] day(s)
-    const row2 = document.createElement('div');
-    row2.className = 'radio-row';
-
-    overdueRadioByDays = document.createElement('input');
-    overdueRadioByDays.type = 'radio';
-    overdueRadioByDays.name = 'overdue-timing';
-    overdueRadioByDays.value = 'overdue-by-days';
-    overdueRadioByDays.className = 'radio-input';
-
-    const row2Label = document.createElement('label');
-    row2Label.className = 'radio-row-label';
-    row2Label.textContent = 'Overdue by more than';
-    row2Label.addEventListener('click', () => {
-      overdueRadioByDays.checked = true;
-      updateOverdueRadioState();
-      if (overdueDaysInputEl) overdueDaysInputEl.focus();
+  // Render schema-driven fields
+  const fieldHandles = [];
+  (schema.fields || []).forEach((field) => {
+    const fieldContainer = document.createElement('div');
+    const handle = renderConditionField({
+      field,
+      container: fieldContainer,
+      boardData,
+      value: existingCond,
+      isInline: false
     });
-
-    overdueDaysInputEl = document.createElement('input');
-    overdueDaysInputEl.type = 'number';
-    overdueDaysInputEl.id = 'overdue-days-input';
-    overdueDaysInputEl.className = 'inline-number-input';
-    overdueDaysInputEl.min = '1';
-    overdueDaysInputEl.max = '365';
-    overdueDaysInputEl.value = '1';
-    overdueDaysInputEl.disabled = true;
-
-    const row2Unit = document.createElement('span');
-    row2Unit.className = 'radio-unit-text';
-    row2Unit.textContent = 'day(s)';
-
-    row2.appendChild(overdueRadioByDays);
-    row2.appendChild(row2Label);
-    row2.appendChild(overdueDaysInputEl);
-    row2.appendChild(row2Unit);
-    radioContainer.appendChild(row2);
-
-    condGroup.appendChild(radioContainer);
-
-    const overdueError = document.createElement('span');
-    overdueError.id = 'overdue-days-error';
-    overdueError.className = 'error-message';
-    overdueError.textContent = 'Please enter a whole number of days between 1 and 365';
-    condGroup.appendChild(overdueError);
-
-    formSection.appendChild(condGroup);
-
-    function updateOverdueRadioState() {
-      if (overdueRadioByDays.checked) {
-        overdueDaysInputEl.disabled = false;
-      } else {
-        overdueDaysInputEl.disabled = true;
-        overdueDaysInputEl.classList.remove('has-error');
-        overdueError.classList.remove('visible');
-      }
-    }
-
-    overdueRadioOnDueDate.addEventListener('change', updateOverdueRadioState);
-    overdueRadioByDays.addEventListener('change', () => {
-      updateOverdueRadioState();
-      if (overdueDaysInputEl) overdueDaysInputEl.focus();
-    });
-
-    overdueDaysInputEl.addEventListener('focus', () => {
-      if (!overdueRadioByDays.checked) {
-        overdueRadioByDays.checked = true;
-        updateOverdueRadioState();
-      }
-    });
-
-    overdueDaysInputEl.addEventListener('input', () => {
-      overdueDaysInputEl.classList.remove('has-error');
-      overdueError.classList.remove('visible');
-    });
-  }
-
-  // 4. Due Soon Condition Radio Group (if present in schema)
-  if (dueSoonConditionField) {
-    const condGroup = document.createElement('div');
-    condGroup.className = 'form-group';
-
-    const condLabel = document.createElement('label');
-    condLabel.className = 'form-label';
-    condLabel.textContent = dueSoonConditionField.label || 'Due date condition';
-    condGroup.appendChild(condLabel);
-
-    const radioContainer = document.createElement('div');
-    radioContainer.className = 'radio-group-container';
-
-    const optBefore = (dueSoonConditionField.options || []).find((o) => o.value === 'before-due-date') || {};
-    const defaultDays = optBefore.defaultDays != null ? optBefore.defaultDays : 2;
-    const minDays = optBefore.minDays != null ? optBefore.minDays : 1;
-    const maxDays = optBefore.maxDays != null ? optBefore.maxDays : 365;
-
-    // Option 1: Before due date [ 2 ] day(s)
-    const row1 = document.createElement('div');
-    row1.className = 'radio-row';
-
-    dueSoonRadioBeforeDueDate = document.createElement('input');
-    dueSoonRadioBeforeDueDate.type = 'radio';
-    dueSoonRadioBeforeDueDate.name = 'due-soon-timing';
-    dueSoonRadioBeforeDueDate.value = 'before-due-date';
-    dueSoonRadioBeforeDueDate.className = 'radio-input';
-    dueSoonRadioBeforeDueDate.checked = true;
-
-    const row1Label = document.createElement('label');
-    row1Label.className = 'radio-row-label';
-    row1Label.textContent = optBefore.label || 'Before due date';
-    row1Label.addEventListener('click', () => {
-      dueSoonRadioBeforeDueDate.checked = true;
-      updateDueSoonRadioState();
-      if (dueSoonDaysInputEl) dueSoonDaysInputEl.focus();
-    });
-
-    dueSoonDaysInputEl = document.createElement('input');
-    dueSoonDaysInputEl.type = 'number';
-    dueSoonDaysInputEl.id = 'due-soon-days-input';
-    dueSoonDaysInputEl.className = 'inline-number-input';
-    dueSoonDaysInputEl.min = String(minDays);
-    dueSoonDaysInputEl.max = String(maxDays);
-    dueSoonDaysInputEl.value = String(defaultDays);
-    dueSoonDaysInputEl.disabled = false;
-
-    const row1Unit = document.createElement('span');
-    row1Unit.className = 'radio-unit-text';
-    row1Unit.textContent = optBefore.unit || 'day(s)';
-
-    row1.appendChild(dueSoonRadioBeforeDueDate);
-    row1.appendChild(row1Label);
-    row1.appendChild(dueSoonDaysInputEl);
-    row1.appendChild(row1Unit);
-    radioContainer.appendChild(row1);
-
-    // Option 2: On due date
-    const optOnDue = (dueSoonConditionField.options || []).find((o) => o.value === 'on-due-date') || {};
-    const row2 = document.createElement('label');
-    row2.className = 'radio-row';
-
-    dueSoonRadioOnDueDate = document.createElement('input');
-    dueSoonRadioOnDueDate.type = 'radio';
-    dueSoonRadioOnDueDate.name = 'due-soon-timing';
-    dueSoonRadioOnDueDate.value = 'on-due-date';
-    dueSoonRadioOnDueDate.className = 'radio-input';
-    dueSoonRadioOnDueDate.checked = false;
-
-    const row2Label = document.createElement('span');
-    row2Label.className = 'radio-row-label';
-    row2Label.textContent = optOnDue.label || 'On due date';
-
-    row2.appendChild(dueSoonRadioOnDueDate);
-    row2.appendChild(row2Label);
-    radioContainer.appendChild(row2);
-
-    condGroup.appendChild(radioContainer);
-
-    const dueSoonError = document.createElement('span');
-    dueSoonError.id = 'due-soon-days-error';
-    dueSoonError.className = 'error-message';
-    dueSoonError.textContent = `Please enter a whole number of days between ${minDays} and ${maxDays}`;
-    condGroup.appendChild(dueSoonError);
-
-    formSection.appendChild(condGroup);
-
-    function updateDueSoonRadioState() {
-      if (dueSoonRadioBeforeDueDate.checked) {
-        dueSoonDaysInputEl.disabled = false;
-      } else {
-        dueSoonDaysInputEl.disabled = true;
-        dueSoonDaysInputEl.classList.remove('has-error');
-        dueSoonError.classList.remove('visible');
-      }
-    }
-
-    dueSoonRadioBeforeDueDate.addEventListener('change', updateDueSoonRadioState);
-    dueSoonRadioOnDueDate.addEventListener('change', updateDueSoonRadioState);
-
-    dueSoonDaysInputEl.addEventListener('focus', () => {
-      if (!dueSoonRadioBeforeDueDate.checked) {
-        dueSoonRadioBeforeDueDate.checked = true;
-        updateDueSoonRadioState();
-      }
-    });
-
-    dueSoonDaysInputEl.addEventListener('input', () => {
-      dueSoonDaysInputEl.classList.remove('has-error');
-      dueSoonError.classList.remove('visible');
-    });
-  }
-
-  // 3. Additional filters section
-  const filtersSection = document.createElement('div');
-  filtersSection.className = 'filters-section';
-
-  const filtersHeader = document.createElement('div');
-  filtersHeader.className = 'filters-header';
-  const filtersTitle = document.createElement('h4');
-  filtersTitle.className = 'filters-title';
-  filtersTitle.textContent = 'Additional filters (optional)';
-  const filtersSubtext = document.createElement('p');
-  filtersSubtext.className = 'filters-subtitle';
-  filtersSubtext.textContent = 'Add filters to narrow down which cards to monitor.';
-  filtersHeader.appendChild(filtersTitle);
-  filtersHeader.appendChild(filtersSubtext);
-  filtersSection.appendChild(filtersHeader);
-
-  // Filter Row 1: Labels
-  const labelCard = document.createElement('div');
-  labelCard.className = 'filter-card disabled';
-
-  const labelHeader = document.createElement('div');
-  labelHeader.className = 'filter-card-header';
-
-  const labelLabelWrap = document.createElement('label');
-  labelLabelWrap.className = 'filter-card-label-wrap';
-
-  labelCheckboxEl = document.createElement('input');
-  labelCheckboxEl.type = 'checkbox';
-  labelCheckboxEl.className = 'filter-checkbox';
-
-  const labelIcon = document.createElement('span');
-  labelIcon.className = 'filter-icon';
-  labelIcon.innerHTML = `
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
-      <line x1="7" y1="7" x2="7.01" y2="7"></line>
-    </svg>
-  `;
-
-  const labelTitle = document.createElement('span');
-  labelTitle.className = 'filter-title';
-  labelTitle.textContent = 'Only cards with a specific label';
-
-  labelLabelWrap.appendChild(labelCheckboxEl);
-  labelLabelWrap.appendChild(labelIcon);
-  labelLabelWrap.appendChild(labelTitle);
-  labelHeader.appendChild(labelLabelWrap);
-
-  const labelControls = document.createElement('div');
-  labelControls.className = 'filter-controls';
-
-  const labelMultiContainer = document.createElement('div');
-  labelControls.appendChild(labelMultiContainer);
-  labelHeader.appendChild(labelControls);
-  labelCard.appendChild(labelHeader);
-
-  const labelError = document.createElement('span');
-  labelError.id = 'labels-filter-error';
-  labelError.className = 'error-message';
-  labelError.style.paddingLeft = '28px';
-  labelError.textContent = 'Select at least one label';
-  labelCard.appendChild(labelError);
-
-  if (labels === null) {
-    labelCheckboxEl.disabled = true;
-    const note = document.createElement('div');
-    note.className = 'filter-notice';
-    note.textContent = 'Labels unavailable on this board';
-    labelCard.appendChild(note);
-  }
-
-  filtersSection.appendChild(labelCard);
-
-  // Populate label options
-  const labelOptions = (labels || []).map((lbl) => ({
-    id: lbl.id,
-    label:
-      lbl.name && lbl.name.trim().length > 0
-        ? lbl.name
-        : lbl.color
-        ? lbl.color.charAt(0).toUpperCase() + lbl.color.slice(1)
-        : 'Unnamed label',
-    swatch: TRELLO_LABEL_COLORS[lbl.color] || lbl.color || '#CBD5E1'
-  }));
-
-  labelsMultiSelect = createMultiSelect({
-    container: labelMultiContainer,
-    placeholder: 'Select labels',
-    options: labelOptions,
-    selectedIds: [],
-    onChange: () => {
-      labelError.classList.remove('visible');
-    }
-  });
-  labelsMultiSelect.setDisabled(true);
-
-  labelCheckboxEl.addEventListener('change', () => {
-    if (labelCheckboxEl.checked) {
-      labelCard.classList.remove('disabled');
-      labelsMultiSelect.setDisabled(false);
-    } else {
-      labelCard.classList.add('disabled');
-      labelsMultiSelect.setDisabled(true);
-      labelError.classList.remove('visible');
-    }
+    fieldHandles.push({ field, handle, container: fieldContainer });
+    formSection.appendChild(fieldContainer);
   });
 
-  // Filter Row 2: Members
-  const memberCard = document.createElement('div');
-  memberCard.className = 'filter-card disabled';
+  // Render Additional Filters if schema specifies filters
+  let filtersEditor = null;
+  let filtersSection = null;
+  if (schema.filters && schema.filters.length > 0) {
+    filtersSection = document.createElement('div');
+    filtersSection.className = 'filters-section';
 
-  const memberHeader = document.createElement('div');
-  memberHeader.className = 'filter-card-header';
+    const filtersHeader = document.createElement('div');
+    filtersHeader.className = 'filters-header';
+    const filtersTitle = document.createElement('h4');
+    filtersTitle.className = 'filters-title';
+    filtersTitle.textContent = 'Additional filters (optional)';
+    const filtersSubtext = document.createElement('p');
+    filtersSubtext.className = 'filters-subtitle';
+    filtersSubtext.textContent = 'Add filters to narrow down which cards to monitor.';
+    filtersHeader.appendChild(filtersTitle);
+    filtersHeader.appendChild(filtersSubtext);
+    filtersSection.appendChild(filtersHeader);
 
-  const memberLabelWrap = document.createElement('label');
-  memberLabelWrap.className = 'filter-card-label-wrap';
+    const filtersContainer = document.createElement('div');
+    filtersSection.appendChild(filtersContainer);
+    formSection.appendChild(filtersSection);
 
-  memberCheckboxEl = document.createElement('input');
-  memberCheckboxEl.type = 'checkbox';
-  memberCheckboxEl.className = 'filter-checkbox';
-
-  const memberIcon = document.createElement('span');
-  memberIcon.className = 'filter-icon';
-  memberIcon.innerHTML = `
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-      <circle cx="12" cy="7" r="4"></circle>
-    </svg>
-  `;
-
-  const memberTitle = document.createElement('span');
-  memberTitle.className = 'filter-title';
-  memberTitle.textContent = 'Only cards with a specific member';
-
-  memberLabelWrap.appendChild(memberCheckboxEl);
-  memberLabelWrap.appendChild(memberIcon);
-  memberLabelWrap.appendChild(memberTitle);
-  memberHeader.appendChild(memberLabelWrap);
-
-  const memberControls = document.createElement('div');
-  memberControls.className = 'filter-controls';
-
-  const memberMultiContainer = document.createElement('div');
-  memberControls.appendChild(memberMultiContainer);
-  memberHeader.appendChild(memberControls);
-  memberCard.appendChild(memberHeader);
-
-  const memberError = document.createElement('span');
-  memberError.id = 'members-filter-error';
-  memberError.className = 'error-message';
-  memberError.style.paddingLeft = '28px';
-  memberError.textContent = 'Select at least one member';
-  memberCard.appendChild(memberError);
-
-  if (members === null) {
-    memberCheckboxEl.disabled = true;
-    const note = document.createElement('div');
-    note.className = 'filter-notice';
-    note.textContent = 'Members unavailable on this board';
-    memberCard.appendChild(note);
+    filtersEditor = createFiltersEditor({
+      container: filtersContainer,
+      boardData,
+      value: existingCond.filters || null
+    });
   }
 
-  filtersSection.appendChild(memberCard);
-
-  const memberOptions = (members || []).map((m) => ({
-    id: m.id,
-    label: m.fullName || m.name || m.username || 'Member',
-    swatch: null
-  }));
-
-  membersMultiSelect = createMultiSelect({
-    container: memberMultiContainer,
-    placeholder: 'Select members',
-    options: memberOptions,
-    selectedIds: [],
-    onChange: () => {
-      memberError.classList.remove('visible');
-    }
-  });
-  membersMultiSelect.setDisabled(true);
-
-  memberCheckboxEl.addEventListener('change', () => {
-    if (memberCheckboxEl.checked) {
-      memberCard.classList.remove('disabled');
-      membersMultiSelect.setDisabled(false);
-    } else {
-      memberCard.classList.add('disabled');
-      membersMultiSelect.setDisabled(true);
-      memberError.classList.remove('visible');
-    }
-  });
-
-  // Filter Row 3: Custom Field
-  const cfCard = document.createElement('div');
-  cfCard.className = 'filter-card disabled';
-
-  const cfHeader = document.createElement('div');
-  cfHeader.className = 'filter-card-header';
-
-  const cfLabelWrap = document.createElement('label');
-  cfLabelWrap.className = 'filter-card-label-wrap';
-
-  customFieldCheckboxEl = document.createElement('input');
-  customFieldCheckboxEl.type = 'checkbox';
-  customFieldCheckboxEl.className = 'filter-checkbox';
-
-  const cfIcon = document.createElement('span');
-  cfIcon.className = 'filter-icon';
-  cfIcon.innerHTML = `
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <line x1="4" y1="21" x2="4" y2="14"></line>
-      <line x1="4" y1="10" x2="4" y2="3"></line>
-      <line x1="12" y1="21" x2="12" y2="12"></line>
-      <line x1="12" y1="8" x2="12" y2="3"></line>
-      <line x1="20" y1="21" x2="20" y2="16"></line>
-      <line x1="20" y1="12" x2="20" y2="3"></line>
-      <line x1="1" y1="14" x2="7" y2="14"></line>
-      <line x1="9" y1="8" x2="15" y2="8"></line>
-      <line x1="17" y1="16" x2="23" y2="16"></line>
-    </svg>
-  `;
-
-  const cfTitle = document.createElement('span');
-  cfTitle.className = 'filter-title';
-  cfTitle.textContent = 'Only cards with a specific custom field';
-
-  cfLabelWrap.appendChild(customFieldCheckboxEl);
-  cfLabelWrap.appendChild(cfIcon);
-  cfLabelWrap.appendChild(cfTitle);
-  cfHeader.appendChild(cfLabelWrap);
-  cfCard.appendChild(cfHeader);
-
-  // Two dropdowns below header: Field and Value
-  const cfRow = document.createElement('div');
-  cfRow.className = 'filter-custom-fields-row';
-
-  // Field Select
-  const cfFieldWrap = document.createElement('div');
-  cfFieldWrap.className = 'select-wrapper';
-
-  customFieldSelectEl = document.createElement('select');
-  customFieldSelectEl.id = 'conditions-cf-select';
-  customFieldSelectEl.className = 'form-select';
-  customFieldSelectEl.disabled = true;
-
-  const defaultCfOpt = document.createElement('option');
-  defaultCfOpt.value = '';
-  defaultCfOpt.textContent = 'Select custom field';
-  defaultCfOpt.disabled = true;
-  defaultCfOpt.selected = true;
-  customFieldSelectEl.appendChild(defaultCfOpt);
-
-  // Filter supported custom fields (list and checkbox)
-  const supportedCustomFields = (customFields || []).filter((f) => {
-    if (f.type === 'list' || f.type === 'checkbox') {
-      return true;
-    }
-    // TODO: support more custom field types
-    return false;
-  });
-
-  supportedCustomFields.forEach((cf) => {
-    const opt = document.createElement('option');
-    opt.value = cf.id;
-    // Security: render text with textContent
-    opt.textContent = cf.name;
-    customFieldSelectEl.appendChild(opt);
-  });
-
-  cfFieldWrap.appendChild(customFieldSelectEl);
-
-  const cfFieldChevron = document.createElement('span');
-  cfFieldChevron.className = 'select-chevron';
-  cfFieldChevron.innerHTML = `
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="6 9 12 15 18 9"></polyline>
-    </svg>
-  `;
-  cfFieldWrap.appendChild(cfFieldChevron);
-  cfRow.appendChild(cfFieldWrap);
-
-  // Value Select
-  const cfValueWrap = document.createElement('div');
-  cfValueWrap.className = 'select-wrapper';
-
-  customFieldValueSelectEl = document.createElement('select');
-  customFieldValueSelectEl.id = 'conditions-cf-value-select';
-  customFieldValueSelectEl.className = 'form-select';
-  customFieldValueSelectEl.disabled = true;
-
-  const defaultCfValueOpt = document.createElement('option');
-  defaultCfValueOpt.value = '';
-  defaultCfValueOpt.textContent = 'Select value';
-  defaultCfValueOpt.disabled = true;
-  defaultCfValueOpt.selected = true;
-  customFieldValueSelectEl.appendChild(defaultCfValueOpt);
-
-  cfValueWrap.appendChild(customFieldValueSelectEl);
-
-  const cfValueChevron = document.createElement('span');
-  cfValueChevron.className = 'select-chevron';
-  cfValueChevron.innerHTML = `
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="6 9 12 15 18 9"></polyline>
-    </svg>
-  `;
-  cfValueWrap.appendChild(cfValueChevron);
-  cfRow.appendChild(cfValueWrap);
-
-  cfCard.appendChild(cfRow);
-
-  const cfError = document.createElement('span');
-  cfError.id = 'customfield-filter-error';
-  cfError.className = 'error-message';
-  cfError.style.paddingLeft = '28px';
-  cfError.textContent = 'Select a custom field and value';
-  cfCard.appendChild(cfError);
-
-  if (customFields === null) {
-    customFieldCheckboxEl.disabled = true;
-    const note = document.createElement('div');
-    note.className = 'filter-notice';
-    note.textContent = 'Enable the Custom Fields Power-Up on this board to use this filter';
-    cfCard.appendChild(note);
-  }
-
-  filtersSection.appendChild(cfCard);
-  formSection.appendChild(filtersSection);
   container.appendChild(formSection);
-
-  // Helper to populate custom field value options
-  function updateCustomFieldValueOptions(fieldId, preselectedValueId = null) {
-    customFieldValueSelectEl.innerHTML = '';
-    const placeholderOpt = document.createElement('option');
-    placeholderOpt.value = '';
-    placeholderOpt.textContent = 'Select value';
-    placeholderOpt.disabled = true;
-    placeholderOpt.selected = true;
-    customFieldValueSelectEl.appendChild(placeholderOpt);
-
-    const targetField = supportedCustomFields.find((f) => f.id === fieldId);
-    if (!targetField) {
-      customFieldValueSelectEl.disabled = true;
-      return;
-    }
-
-    if (targetField.type === 'list') {
-      const opts = targetField.options || [];
-      opts.forEach((o) => {
-        const opt = document.createElement('option');
-        opt.value = o.id;
-        // Security: textContent
-        opt.textContent = (o.value && o.value.text) ? o.value.text : o.id;
-        if (preselectedValueId && o.id === preselectedValueId) {
-          opt.selected = true;
-        }
-        customFieldValueSelectEl.appendChild(opt);
-      });
-      customFieldValueSelectEl.disabled = false;
-    } else if (targetField.type === 'checkbox') {
-      const checkedOpt = document.createElement('option');
-      checkedOpt.value = 'true';
-      checkedOpt.textContent = 'Checked';
-      if (preselectedValueId === 'true') checkedOpt.selected = true;
-      customFieldValueSelectEl.appendChild(checkedOpt);
-
-      const uncheckedOpt = document.createElement('option');
-      uncheckedOpt.value = 'false';
-      uncheckedOpt.textContent = 'Not checked';
-      if (preselectedValueId === 'false') uncheckedOpt.selected = true;
-      customFieldValueSelectEl.appendChild(uncheckedOpt);
-
-      customFieldValueSelectEl.disabled = false;
-    }
-  }
-
-  customFieldSelectEl.addEventListener('change', () => {
-    cfError.classList.remove('visible');
-    customFieldSelectEl.classList.remove('has-error');
-    updateCustomFieldValueOptions(customFieldSelectEl.value);
-  });
-
-  customFieldValueSelectEl.addEventListener('change', () => {
-    cfError.classList.remove('visible');
-    customFieldValueSelectEl.classList.remove('has-error');
-  });
-
-  customFieldCheckboxEl.addEventListener('change', () => {
-    if (customFieldCheckboxEl.checked) {
-      cfCard.classList.remove('disabled');
-      customFieldSelectEl.disabled = false;
-      if (customFieldSelectEl.value) {
-        customFieldValueSelectEl.disabled = false;
-      }
-    } else {
-      cfCard.classList.add('disabled');
-      customFieldSelectEl.disabled = true;
-      customFieldValueSelectEl.disabled = true;
-      cfError.classList.remove('visible');
-    }
-  });
-
-  // Input change listeners to clear error messages
-  if (listSelectEl) {
-    listSelectEl.addEventListener('change', () => {
-      listSelectEl.classList.remove('has-error');
-      const listError = document.getElementById('list-error');
-      if (listError) listError.classList.remove('visible');
-    });
-  }
-
-  if (daysInputEl) {
-    daysInputEl.addEventListener('input', () => {
-      const daysSuffixGroup = daysInputEl.closest('.input-group-suffix');
-      if (daysSuffixGroup) daysSuffixGroup.classList.remove('has-error');
-      const daysError = document.getElementById('days-error');
-      if (daysError) daysError.classList.remove('visible');
-    });
-  }
 
   // Footer Actions: Back (left) and Next (right)
   const actions = document.createElement('div');
@@ -1082,203 +268,23 @@ async function initConditionsPage() {
   actions.appendChild(nextBtn);
   container.appendChild(actions);
 
-  // Prefill from draft.conditions if present and matching alertType
-  if (draft.conditions && draft.conditions.alertType === draft.triggerType) {
-    const cond = draft.conditions;
-    if (listSelectEl) {
-      if (cond.listId) {
-        listSelectEl.value = cond.listId;
-      } else if (listField && !listField.required) {
-        listSelectEl.value = '';
-      }
-    }
-    if (typeof cond.days === 'number' && daysInputEl) {
-      daysInputEl.value = String(cond.days);
-    }
-    if (cond.filters) {
-      if (Array.isArray(cond.filters.labels) && cond.filters.labels.length > 0 && labelCheckboxEl) {
-        labelCheckboxEl.checked = true;
-        labelCard.classList.remove('disabled');
-        labelsMultiSelect.setDisabled(false);
-        labelsMultiSelect.setSelectedIds(cond.filters.labels.map((l) => l.id));
-      }
-      if (Array.isArray(cond.filters.members) && cond.filters.members.length > 0 && memberCheckboxEl) {
-        memberCheckboxEl.checked = true;
-        memberCard.classList.remove('disabled');
-        membersMultiSelect.setDisabled(false);
-        membersMultiSelect.setSelectedIds(cond.filters.members.map((m) => m.id));
-      }
-      if (cond.filters.customField && cond.filters.customField.fieldId && customFieldCheckboxEl) {
-        customFieldCheckboxEl.checked = true;
-        cfCard.classList.remove('disabled');
-        customFieldSelectEl.disabled = false;
-        customFieldSelectEl.value = cond.filters.customField.fieldId;
-        updateCustomFieldValueOptions(cond.filters.customField.fieldId, cond.filters.customField.valueId);
-      }
-    }
-    if (overdueConditionField) {
-      const selectedTiming = cond.timing || cond.condition;
-      if (selectedTiming === 'overdue-by-days') {
-        if (overdueRadioByDays) {
-          overdueRadioByDays.checked = true;
-          if (overdueDaysInputEl) {
-            overdueDaysInputEl.disabled = false;
-            const daysVal = cond.overdueDays != null ? cond.overdueDays : (cond.days != null ? cond.days : 1);
-            overdueDaysInputEl.value = String(daysVal);
-          }
-        }
-      } else {
-        if (overdueRadioOnDueDate) {
-          overdueRadioOnDueDate.checked = true;
-          if (overdueDaysInputEl) overdueDaysInputEl.disabled = true;
-        }
-      }
-    }
-    if (dueSoonConditionField) {
-      const selectedTiming = cond.dueDateCondition || cond.timing || cond.condition || 'before-due-date';
-      const optBefore = (dueSoonConditionField.options || []).find((o) => o.value === 'before-due-date') || {};
-      const defaultDays = optBefore.defaultDays != null ? optBefore.defaultDays : 2;
-
-      if (selectedTiming === 'on-due-date') {
-        if (dueSoonRadioOnDueDate) {
-          dueSoonRadioOnDueDate.checked = true;
-          if (dueSoonDaysInputEl) {
-            dueSoonDaysInputEl.disabled = true;
-          }
-        }
-      } else {
-        if (dueSoonRadioBeforeDueDate) {
-          dueSoonRadioBeforeDueDate.checked = true;
-          if (dueSoonDaysInputEl) {
-            dueSoonDaysInputEl.disabled = false;
-            const daysVal = cond.dueSoonDays != null ? cond.dueSoonDays : (cond.days != null ? cond.days : defaultDays);
-            dueSoonDaysInputEl.value = String(daysVal);
-          }
-        }
-      }
-    }
-  }
-
   // Collect form state helper
   function collectFormState() {
-    const listId = listSelectEl ? listSelectEl.value : '';
-    const selectedListOpt = listSelectEl ? listSelectEl.options[listSelectEl.selectedIndex] : null;
-    let listName = '';
-    if (selectedListOpt) {
-      listName = selectedListOpt.textContent;
-    }
-
-    const defaultDays = daysField && daysField.default != null ? daysField.default : 3;
-    const daysNum = daysInputEl ? parseInt(daysInputEl.value, 10) : defaultDays;
-
-    let overdueTiming = null;
-    let overdueDays = null;
-    if (overdueConditionField) {
-      if (overdueRadioByDays && overdueRadioByDays.checked) {
-        overdueTiming = 'overdue-by-days';
-        const parsed = overdueDaysInputEl ? parseInt(overdueDaysInputEl.value, 10) : 1;
-        overdueDays = isNaN(parsed) ? 1 : parsed;
-      } else {
-        overdueTiming = 'on-due-date';
-        overdueDays = 0;
-      }
-    }
-
-    let dueSoonTiming = null;
-    let dueSoonDays = null;
-    if (dueSoonConditionField) {
-      const optBefore = (dueSoonConditionField.options || []).find((o) => o.value === 'before-due-date') || {};
-      const defaultDays = optBefore.defaultDays != null ? optBefore.defaultDays : 2;
-
-      if (dueSoonRadioBeforeDueDate && dueSoonRadioBeforeDueDate.checked) {
-        dueSoonTiming = 'before-due-date';
-        const parsed = dueSoonDaysInputEl ? parseInt(dueSoonDaysInputEl.value, 10) : defaultDays;
-        dueSoonDays = isNaN(parsed) ? defaultDays : parsed;
-      } else {
-        dueSoonTiming = 'on-due-date';
-        dueSoonDays = 0;
-      }
-    }
-
-    // Filters
-    let filterLabels = null;
-    if (labelCheckboxEl && labelCheckboxEl.checked) {
-      const selectedIds = labelsMultiSelect.getSelectedIds();
-      filterLabels = selectedIds.map((id) => {
-        const found = (labels || []).find((l) => l.id === id);
-        return {
-          id,
-          name: found ? found.name || found.color || 'Label' : id
-        };
-      });
-    }
-
-    let filterMembers = null;
-    if (memberCheckboxEl && memberCheckboxEl.checked) {
-      const selectedIds = membersMultiSelect.getSelectedIds();
-      filterMembers = selectedIds.map((id) => {
-        const found = (members || []).find((m) => m.id === id);
-        return {
-          id,
-          name: found ? found.fullName || found.name || found.username || 'Member' : id
-        };
-      });
-    }
-
-    let filterCustomField = null;
-    if (customFieldCheckboxEl && customFieldCheckboxEl.checked) {
-      const fieldId = customFieldSelectEl ? customFieldSelectEl.value : '';
-      const fieldOpt = customFieldSelectEl ? customFieldSelectEl.options[customFieldSelectEl.selectedIndex] : null;
-      const fieldName = fieldOpt && fieldOpt.value ? fieldOpt.textContent : '';
-
-      const valueId = customFieldValueSelectEl ? customFieldValueSelectEl.value : '';
-      const valueOpt = customFieldValueSelectEl ? customFieldValueSelectEl.options[customFieldValueSelectEl.selectedIndex] : null;
-      const valueLabel = valueOpt && valueOpt.value ? valueOpt.textContent : '';
-
-      filterCustomField = {
-        fieldId,
-        fieldName,
-        valueId,
-        valueLabel
-      };
-    }
-
-    const conditionsResult = {
+    let collected = {
       alertType: draft.triggerType,
-      listId: listId || null,
-      listName: listName || (listField && !listField.required ? 'Any list' : ''),
-      filters: {
-        labels: filterLabels,
-        members: filterMembers,
-        customField: filterCustomField
-      }
+      filters: filtersEditor ? filtersEditor.getValue() : null
     };
 
-    if (daysField) {
-      conditionsResult.days = isNaN(daysNum) ? defaultDays : daysNum;
-    }
+    fieldHandles.forEach(({ handle }) => {
+      const val = handle.getValue();
+      collected = { ...collected, ...val };
+    });
 
-    if (overdueConditionField) {
-      conditionsResult.timing = overdueTiming;
-      conditionsResult.condition = overdueTiming;
-      conditionsResult.days = overdueTiming === 'overdue-by-days' ? overdueDays : 0;
-      conditionsResult.overdueDays = overdueDays;
-    }
-
-    if (dueSoonConditionField) {
-      conditionsResult.dueDateCondition = dueSoonTiming;
-      conditionsResult.condition = dueSoonTiming;
-      conditionsResult.timing = dueSoonTiming;
-      conditionsResult.days = dueSoonTiming === 'before-due-date' ? dueSoonDays : 0;
-      conditionsResult.dueSoonDays = dueSoonDays;
-    }
-
-    return conditionsResult;
+    return collected;
   }
 
   // Handle Back
   backBtn.addEventListener('click', async () => {
-    // Save partial draft on Back
     draft.conditions = collectFormState();
     await persistDraft(draft);
     openStep1();
@@ -1287,144 +293,33 @@ async function initConditionsPage() {
   // Handle Next with validation
   nextBtn.addEventListener('click', async () => {
     let isValid = true;
-    let firstErrorEl = null;
+    let firstErrorContainer = null;
 
-    // 1. Validate List (only if required)
-    if (listField && listField.required) {
-      const selectedListId = listSelectEl ? listSelectEl.value : '';
-      if (!selectedListId) {
-        listSelectEl.classList.add('has-error');
-        const listError = document.getElementById('list-error');
-        if (listError) listError.classList.add('visible');
+    fieldHandles.forEach(({ handle, container: fieldCont }) => {
+      const fieldValid = handle.validate();
+      if (!fieldValid) {
         isValid = false;
-        if (!firstErrorEl) firstErrorEl = listSelectEl;
-      } else {
-        listSelectEl.classList.remove('has-error');
-        const listError = document.getElementById('list-error');
-        if (listError) listError.classList.remove('visible');
+        if (!firstErrorContainer) firstErrorContainer = fieldCont;
       }
-    } else if (listSelectEl) {
-      listSelectEl.classList.remove('has-error');
-      const listError = document.getElementById('list-error');
-      if (listError) listError.classList.remove('visible');
-    }
+    });
 
-    // 2. Validate Days (if present)
-    if (daysField && daysField.required !== false) {
-      const daysRaw = daysInputEl ? daysInputEl.value.trim() : '';
-      const daysNum = Number(daysRaw);
-      const minDays = daysField.min != null ? daysField.min : 1;
-      const maxDays = daysField.max != null ? daysField.max : 365;
-      const daysSuffixGroup = daysInputEl ? daysInputEl.closest('.input-group-suffix') : null;
-      const daysError = document.getElementById('days-error');
-
-      if (!daysRaw || !Number.isInteger(daysNum) || daysNum < minDays || daysNum > maxDays) {
-        if (daysSuffixGroup) daysSuffixGroup.classList.add('has-error');
-        if (daysError) daysError.classList.add('visible');
+    if (filtersEditor) {
+      const filtersValid = filtersEditor.validate();
+      if (!filtersValid) {
         isValid = false;
-        if (!firstErrorEl) firstErrorEl = daysInputEl;
-      } else {
-        if (daysSuffixGroup) daysSuffixGroup.classList.remove('has-error');
-        if (daysError) daysError.classList.remove('visible');
+        if (!firstErrorContainer) firstErrorContainer = filtersSection;
       }
     }
 
-    // 3. Validate Overdue Condition (if present)
-    if (overdueConditionField && overdueRadioByDays && overdueRadioByDays.checked) {
-      const raw = overdueDaysInputEl ? overdueDaysInputEl.value.trim() : '';
-      const num = Number(raw);
-      const overdueError = document.getElementById('overdue-days-error');
-      if (!raw || !Number.isInteger(num) || num < 1 || num > 365) {
-        if (overdueDaysInputEl) overdueDaysInputEl.classList.add('has-error');
-        if (overdueError) overdueError.classList.add('visible');
-        isValid = false;
-        if (!firstErrorEl) firstErrorEl = overdueDaysInputEl;
-      } else {
-        if (overdueDaysInputEl) overdueDaysInputEl.classList.remove('has-error');
-        if (overdueError) overdueError.classList.remove('visible');
-      }
-    }
-
-    // 3b. Validate Due Soon Condition (if present)
-    if (dueSoonConditionField && dueSoonRadioBeforeDueDate && dueSoonRadioBeforeDueDate.checked) {
-      const raw = dueSoonDaysInputEl ? dueSoonDaysInputEl.value.trim() : '';
-      const num = Number(raw);
-      const optBefore = (dueSoonConditionField.options || []).find((o) => o.value === 'before-due-date') || {};
-      const minDays = optBefore.minDays != null ? optBefore.minDays : 1;
-      const maxDays = optBefore.maxDays != null ? optBefore.maxDays : 365;
-      const dueSoonError = document.getElementById('due-soon-days-error');
-
-      if (!raw || !Number.isInteger(num) || num < minDays || num > maxDays) {
-        if (dueSoonDaysInputEl) dueSoonDaysInputEl.classList.add('has-error');
-        if (dueSoonError) dueSoonError.classList.add('visible');
-        isValid = false;
-        if (!firstErrorEl) firstErrorEl = dueSoonDaysInputEl;
-      } else {
-        if (dueSoonDaysInputEl) dueSoonDaysInputEl.classList.remove('has-error');
-        if (dueSoonError) dueSoonError.classList.remove('visible');
-      }
-    }
-
-    // 3. Validate Filters if checked
-    if (labelCheckboxEl && labelCheckboxEl.checked) {
-      const labelIds = labelsMultiSelect.getSelectedIds();
-      if (!labelIds || labelIds.length === 0) {
-        labelError.classList.add('visible');
-        isValid = false;
-        if (!firstErrorEl) firstErrorEl = labelCard;
-      } else {
-        labelError.classList.remove('visible');
-      }
-    } else {
-      labelError.classList.remove('visible');
-    }
-
-    if (memberCheckboxEl && memberCheckboxEl.checked) {
-      const memberIds = membersMultiSelect.getSelectedIds();
-      if (!memberIds || memberIds.length === 0) {
-        memberError.classList.add('visible');
-        isValid = false;
-        if (!firstErrorEl) firstErrorEl = memberCard;
-      } else {
-        memberError.classList.remove('visible');
-      }
-    } else {
-      memberError.classList.remove('visible');
-    }
-
-    if (customFieldCheckboxEl && customFieldCheckboxEl.checked) {
-      const fId = customFieldSelectEl ? customFieldSelectEl.value : '';
-      const vId = customFieldValueSelectEl ? customFieldValueSelectEl.value : '';
-      if (!fId || !vId) {
-        cfError.classList.add('visible');
-        if (!fId) customFieldSelectEl.classList.add('has-error');
-        if (!vId) customFieldValueSelectEl.classList.add('has-error');
-        isValid = false;
-        if (!firstErrorEl) firstErrorEl = cfCard;
-      } else {
-        cfError.classList.remove('visible');
-        customFieldSelectEl.classList.remove('has-error');
-        customFieldValueSelectEl.classList.remove('has-error');
-      }
-    } else {
-      cfError.classList.remove('visible');
-    }
-
-    // If validation fails, scroll to first error and do not proceed
     if (!isValid) {
-      if (firstErrorEl) {
-        firstErrorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (firstErrorContainer) {
+        firstErrorContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
       return;
     }
 
-    // Backend contract: store IDs (the scheduled backend job matches on IDs), plus names for display only.
-    // Filter semantics: a card must match ALL enabled filters; within one filter, ANY selected value matches.
-    // TODO: confirm these semantics before building the backend.
     draft.conditions = collectFormState();
-
     await persistDraft(draft);
-
     openRecipients();
   });
 }
