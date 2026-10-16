@@ -5,6 +5,7 @@ import { conditionSchemas } from './conditions-schemas.js';
 import { fetchBoardData } from './board-data.js';
 import { renderConditionField } from './condition-fields.js';
 import { createFiltersEditor } from './filters-editor.js';
+import { goToMyAlerts } from './navigation.js';
 
 // Initialize the Trello Power-Up iframe connector safely
 const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
@@ -35,7 +36,7 @@ function setupSidebarNav() {
       if (target === 'home') {
         openHome();
       } else if (target === 'my-alerts') {
-        console.log('My Alerts clicked - not yet built');
+        goToMyAlerts(t);
       } else if (target === 'create-alert') {
         openStep1();
       }

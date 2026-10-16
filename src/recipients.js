@@ -5,6 +5,7 @@ import { summarizeConditions } from './condition-summary.js';
 import { fetchRecipientData } from './board-data.js';
 import { frequencyOptions } from './frequency-options.js';
 import { createRecipientsEditor } from './recipients-editor.js';
+import { goToMyAlerts } from './navigation.js';
 
 // Initialize the Trello Power-Up iframe connector safely
 const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
@@ -40,7 +41,7 @@ function setupSidebarNav() {
       if (target === 'home') {
         openHome();
       } else if (target === 'my-alerts') {
-        console.log('My Alerts clicked - not yet built');
+        goToMyAlerts(t);
       } else if (target === 'create-alert') {
         openStep1();
       }

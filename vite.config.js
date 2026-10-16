@@ -12,6 +12,7 @@ export default defineConfig({
         recipients: resolve(__dirname, 'recipients.html'),
         review: resolve(__dirname, 'review.html'),
         alertCreated: resolve(__dirname, 'alert-created.html'),
+        myAlerts: resolve(__dirname, 'my-alerts.html'),
         authorized: resolve(__dirname, 'authorized.html')
       }
     }
