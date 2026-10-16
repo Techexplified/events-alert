@@ -1,6 +1,6 @@
-/* global TrelloPowerUp */
 import { alertTypes, getIconSvg } from './alert-types.js';
 import { renderStepper } from './stepper.js';
+import { goToMyAlerts } from './navigation.js';
 
 // Initialize the Trello Power-Up iframe connector safely
 const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
@@ -81,8 +81,7 @@ function setupSidebarNav() {
       if (target === 'home') {
         openHome();
       } else if (target === 'my-alerts') {
-        console.log('My Alerts clicked - not yet built');
-        // TODO: wire real navigation once My Alerts view exists
+        goToMyAlerts();
       }
     });
   });
@@ -221,6 +220,19 @@ async function restoreDraft() {
   }
 
   if (existing) {
+    // Stale-state guard: if the draft has editingAlertId, clear the draft and start blank.
+    if (existing.editingAlertId) {
+      if (t && typeof t.set === 'function') {
+        try {
+          await t.set('board', 'private', 'alertDraft', null);
+        } catch (e) {}
+      }
+      try {
+        localStorage.removeItem('alertDraft');
+      } catch (e) {}
+      return;
+    }
+
     const nameInput = document.getElementById('alert-name-input');
     if (existing.alertName && nameInput) {
       nameInput.value = existing.alertName;

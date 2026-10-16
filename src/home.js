@@ -1,5 +1,6 @@
 /* global TrelloPowerUp */
 import { alertTypes, getIconSvg } from './alert-types.js';
+import { goToMyAlerts } from './navigation.js';
 
 // Initialize the Trello Power-Up iframe connector safely
 const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
@@ -62,6 +63,7 @@ function renderAlertCards() {
   });
 }
 
+
 // Setup sidebar navigation
 function setupSidebarNav() {
   const navButtons = document.querySelectorAll('.nav-item');
@@ -73,8 +75,7 @@ function setupSidebarNav() {
       } else if (target === 'my-alerts') {
         navButtons.forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
-        console.log('My Alerts clicked - not yet built');
-        // TODO: wire real navigation once My Alerts view exists
+        goToMyAlerts();
       } else if (target === 'home') {
         navButtons.forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
