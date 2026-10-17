@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")   // Neon pooled connection string
+  directUrl = env("DIRECT_URL")     // Neon direct connection string, used for migrations
+}
+
+enum AlertStatus {
+  active
+  paused
+}
+
+model Alert {
+  id                String      @id @default(cuid())
+  boardId           String
+  boardName         String
+  alertType         String      // stuck-in-list | no-activity | overdue-in-list | due-soon-unassigned | custom-condition
+  conditions        Json
+  recipients        Json        // includes recipients.frequency and recipients.creator for now
+  status            AlertStatus @default(active)
+  createdByMemberId String
+  createdByName     String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([boardId, createdAt])
+  @@index([boardId, status])
+}

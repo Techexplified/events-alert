@@ -150,13 +150,14 @@ export function renderFiltersSummary(container, filters) {
  * @param {HTMLElement} container - Element to render into.
  * @param {object} recipients - Saved recipients object.
  */
-export function renderNotifySummary(container, recipients) {
+export function renderNotifySummary(container, recipients, currentMember = null) {
   container.innerHTML = '';
   const rec = recipients || { mode: 'me' };
 
   if (rec.mode === 'me') {
+    const isOther = rec.creator && currentMember && rec.creator.id !== currentMember.id;
     const txt = document.createElement('span');
-    txt.textContent = 'Me only';
+    txt.textContent = isOther ? `Only ${rec.creator.name || 'creator'}` : 'Me only';
     container.appendChild(txt);
   } else if (rec.mode === 'all') {
     const txt = document.createElement('span');
@@ -214,9 +215,10 @@ export function renderNotifySummary(container, recipients) {
  * @param {HTMLElement} options.container - The table DOM element.
  * @param {object} options.alert - Alert object or draft.
  * @param {string} options.boardName - Name of the board.
+ * @param {object} [options.currentMember] - Logged in Trello member info.
  * @returns {Array<object>} List of row descriptor handles with references for attaching editors/actions.
  */
-export function renderAlertSummaryRows({ container, alert, boardName }) {
+export function renderAlertSummaryRows({ container, alert, boardName, currentMember = null }) {
   container.innerHTML = '';
   const rows = [];
 
@@ -350,7 +352,7 @@ export function renderAlertSummaryRows({ container, alert, boardName }) {
 
   const notifyDisplay = document.createElement('div');
   notifyValue.appendChild(notifyDisplay);
-  renderNotifySummary(notifyDisplay, recipients);
+  renderNotifySummary(notifyDisplay, recipients, currentMember);
 
   const notifyAction = document.createElement('div');
   notifyAction.className = 'review-row-action';
@@ -371,7 +373,7 @@ export function renderAlertSummaryRows({ container, alert, boardName }) {
     isEditable: true,
     refreshValue: (currentAlert) => {
       const curRec = currentAlert.recipients || { mode: 'me' };
-      renderNotifySummary(notifyDisplay, curRec);
+      renderNotifySummary(notifyDisplay, curRec, currentMember);
     }
   });
 

@@ -2,7 +2,7 @@
 import { alertTypes, getIconSvg } from './alert-types.js';
 import { renderStepper } from './stepper.js';
 import { summarizeConditions } from './condition-summary.js';
-import { fetchBoardData, fetchRecipientData, fetchBoardInfo } from './board-data.js';
+import { fetchBoardData, fetchRecipientData, fetchBoardInfo, fetchCurrentMember } from './board-data.js';
 import { frequencyOptions, getFrequencyLabel } from './frequency-options.js';
 import { renderConditionField } from './condition-fields.js';
 import { createFiltersEditor } from './filters-editor.js';
@@ -10,10 +10,18 @@ import { createRecipientsEditor } from './recipients-editor.js';
 import { createAlert, updateAlert } from './alerts-api.js';
 import { renderAlertSummaryRows } from './alert-summary.js';
 import { goToMyAlerts } from './navigation.js';
+import { TRELLO_APP_KEY, TRELLO_APP_NAME, TRELLO_APP_AUTHOR } from './config.js';
+import { NotAuthorizedError, ApiError } from './api-client.js';
 
 // Initialize the Trello Power-Up iframe connector safely
 const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
-const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe ? window.TrelloPowerUp.iframe() : null;
+const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe
+  ? window.TrelloPowerUp.iframe({
+      appKey: TRELLO_APP_KEY,
+      appName: TRELLO_APP_NAME,
+      appAuthor: TRELLO_APP_AUTHOR
+    })
+  : null;
 
 // Navigation helpers
 function openHome() {
@@ -50,7 +58,7 @@ function setupSidebarNav() {
       if (target === 'home') {
         openHome();
       } else if (target === 'my-alerts') {
-        goToMyAlerts();
+        goToMyAlerts(t);
       } else if (target === 'create-alert') {
         openStep1();
       }
@@ -228,8 +236,11 @@ async function initReviewPage() {
     iconColor: '#EF4444'
   };
 
-  // Fetch board info for display
-  const boardInfo = await fetchBoardInfo(t);
+  // Fetch board info and current member for display
+  const [boardInfo, currentMember] = await Promise.all([
+    fetchBoardInfo(t),
+    fetchCurrentMember(t)
+  ]);
 
   // Lazy cache for full board data & recipient data (loaded first time any Edit is opened)
   let lazyBoardData = null;
@@ -297,7 +308,8 @@ async function initReviewPage() {
   const summaryRows = renderAlertSummaryRows({
     container: table,
     alert: draft,
-    boardName: boardInfo.name
+    boardName: boardInfo.name,
+    currentMember
   });
 
   // Track open editors
@@ -710,9 +722,13 @@ async function initReviewPage() {
   if (isEditMode) {
     backBtn.textContent = 'Cancel';
     backBtn.addEventListener('click', async () => {
-      // Clear the edit draft and return to success page, leaving lastSavedAlert untouched
+      const returnTo = draft.returnTo || 'my-alerts';
       await clearDraft();
-      openAlertCreated();
+      if (returnTo === 'alert-created') {
+        openAlertCreated();
+      } else {
+        goToMyAlerts(t);
+      }
     });
   } else {
     backBtn.innerHTML = '&larr; Back';
@@ -751,49 +767,30 @@ async function initReviewPage() {
     if (isEditMode) {
       createBtn.textContent = 'Saving…';
       try {
-        let lastSavedData = null;
-        if (t && typeof t.get === 'function') {
-          try {
-            lastSavedData = await t.get('board', 'private', 'lastSavedAlert');
-          } catch (e) {}
-        }
-        if (!lastSavedData) {
-          try {
-            const raw = localStorage.getItem('lastSavedAlert');
-            if (raw) lastSavedData = JSON.parse(raw);
-          } catch (e) {}
-        }
-        const origAlert = (lastSavedData && lastSavedData.alert) ? lastSavedData.alert : {};
-
-        const payload = {
-          id: draft.editingAlertId,
-          status: origAlert.status || 'active',
-          boardId: boardInfo.id,
-          boardName: boardInfo.name,
-          alertType: triggerType,
+        const updatedAlert = await updateAlert(t, draft.editingAlertId, {
           conditions: draft.conditions,
-          recipients: draft.recipients,
-          createdAt: origAlert.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
+          recipients: draft.recipients
+        });
 
-        await updateAlert(draft.editingAlertId, payload);
-
-        const handoff = { alert: payload, savedAs: 'updated' };
+        const alertId = updatedAlert?.id || draft.editingAlertId;
+        const pointer = { alertId, savedAs: 'updated' };
         if (t && typeof t.set === 'function') {
           try {
-            await t.set('board', 'private', 'lastSavedAlert', handoff);
+            await t.set('board', 'private', 'lastSavedAlert', pointer);
           } catch (e) {}
         }
         try {
-          localStorage.setItem('lastSavedAlert', JSON.stringify(handoff));
+          localStorage.setItem('lastSavedAlert', JSON.stringify(pointer));
         } catch (e) {}
 
         await clearDraft();
         openAlertCreated();
       } catch (err) {
         console.error('Failed to update alert:', err);
-        createErrorSpan.textContent = 'Failed to update alert. Please try again.';
+        const errorMsg = (err instanceof NotAuthorizedError)
+          ? 'Please connect your Trello account to save changes.'
+          : (err.message || 'Failed to update alert. Please try again.');
+        createErrorSpan.textContent = errorMsg;
         createErrorSpan.classList.add('visible');
         createBtn.disabled = false;
         createBtn.textContent = 'Save changes';
@@ -801,40 +798,34 @@ async function initReviewPage() {
     } else {
       createBtn.textContent = 'Creating…';
       try {
-        // Backend contract: IDs are used for matching, names are for display only.
-        // boardId is added here because the Conditions step doesn't collect it.
-        // status: 'active' added for initial alert state.
         const payload = {
           boardId: boardInfo.id,
           boardName: boardInfo.name,
-          alertType: draft.conditions.alertType || triggerType,
+          alertType: draft.conditions?.alertType || triggerType,
           conditions: draft.conditions,
-          recipients: draft.recipients,
-          status: 'active',
-          createdAt: new Date().toISOString()
+          recipients: draft.recipients
         };
 
-        const result = await createAlert(payload);
+        const createdAlert = await createAlert(t, payload);
 
-        // Temporary handoff for the success page.
-        // TODO: once the backend exists, the success page should load the alert by id instead.
-        const savedAlert = { ...payload, id: result.id, status: 'active' };
-        const handoff = { alert: savedAlert, savedAs: 'created' };
-
+        const pointer = { alertId: createdAlert.id, savedAs: 'created' };
         if (t && typeof t.set === 'function') {
           try {
-            await t.set('board', 'private', 'lastSavedAlert', handoff);
+            await t.set('board', 'private', 'lastSavedAlert', pointer);
           } catch (e) {}
         }
         try {
-          localStorage.setItem('lastSavedAlert', JSON.stringify(handoff));
+          localStorage.setItem('lastSavedAlert', JSON.stringify(pointer));
         } catch (e) {}
 
         await clearDraft();
         openAlertCreated();
       } catch (err) {
         console.error('Failed to create alert:', err);
-        createErrorSpan.textContent = 'Failed to create alert. Please try again.';
+        const errorMsg = (err instanceof NotAuthorizedError)
+          ? 'Please connect your Trello account to create an alert.'
+          : (err.message || 'Failed to create alert. Please try again.');
+        createErrorSpan.textContent = errorMsg;
         createErrorSpan.classList.add('visible');
         createBtn.disabled = false;
         createBtn.textContent = 'Create Alert';

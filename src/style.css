@@ -2297,6 +2297,84 @@ body {
   margin-bottom: 18px;
 }
 
+/* Skeleton Loading State */
+.alerts-loading-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 
+.alert-skeleton-card {
+  height: 140px;
+  background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.5s infinite;
+  border-radius: 12px;
+  border: 1.5px solid var(--border-color);
+}
 
+@keyframes skeletonShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 
+/* Paused Dimmed Card */
+.alert-item-card.is-paused {
+  opacity: 0.85;
+  background-color: #FAFAFA;
+}
+
+/* Disabled Controls for Read-Only Alerts */
+.toggle-switch input:disabled + .toggle-slider {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.kebab-item:disabled,
+.kebab-item.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: auto;
+}
+
+.kebab-item:disabled:hover,
+.kebab-item.disabled:hover {
+  background-color: transparent;
+}
+
+/* Inline Alert Error Banner */
+.alerts-inline-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background-color: #FEF2F2;
+  border: 1px solid #FCA5A5;
+  border-radius: 8px;
+  color: #991B1B;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.alerts-inline-error-banner .btn-close-error {
+  background: transparent;
+  border: none;
+  color: #991B1B;
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+/* Card-level error message */
+.card-inline-error {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background-color: #FEF2F2;
+  border: 1px solid #FCA5A5;
+  border-radius: 6px;
+  color: #991B1B;
+  font-size: 12px;
+  font-weight: 500;
+}

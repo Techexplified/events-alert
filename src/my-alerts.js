@@ -1,11 +1,22 @@
 /* global TrelloPowerUp */
 import { alertTypes, getIconSvg } from './alert-types.js';
 import { summarizeConditions } from './condition-summary.js';
-import { getAlerts, toggleAlertStatus, deleteAlert } from './alerts-api.js';
+import { listAlerts, setAlertStatus, deleteAlert } from './alerts-api.js';
+import { startEditingAlert } from './edit-alert.js';
+import { fetchCurrentMember } from './board-data.js';
+import { goToMyAlerts } from './navigation.js';
+import { TRELLO_APP_KEY, TRELLO_APP_NAME, TRELLO_APP_AUTHOR } from './config.js';
+import { NotAuthorizedError, ApiError, getToken } from './api-client.js';
 
 // Initialize the Trello Power-Up iframe connector safely
 const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
-const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe ? window.TrelloPowerUp.iframe() : null;
+const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe
+  ? window.TrelloPowerUp.iframe({
+      appKey: TRELLO_APP_KEY,
+      appName: TRELLO_APP_NAME,
+      appAuthor: TRELLO_APP_AUTHOR
+    })
+  : null;
 
 // Navigation helpers
 function openHome() {
@@ -28,11 +39,6 @@ function openCreateAlert() {
   window.location.href = targetUrl;
 }
 
-function openReview() {
-  const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./review.html') : './review.html';
-  window.location.href = targetUrl;
-}
-
 // Setup sidebar navigation
 function setupSidebarNav() {
   const navButtons = document.querySelectorAll('.nav-item');
@@ -41,6 +47,8 @@ function setupSidebarNav() {
       const target = btn.getAttribute('data-nav');
       if (target === 'home') {
         openHome();
+      } else if (target === 'my-alerts') {
+        goToMyAlerts(t);
       } else if (target === 'create-alert') {
         openCreateAlert();
       }
@@ -63,9 +71,15 @@ function setupCloseButton() {
 }
 
 // Helper to format recipients for card footer
-function formatRecipientSummary(recipients) {
+// When recipients.mode === 'me' and current member isn't recipients.creator.id, show "Only {creator name}"
+function formatRecipientSummary(recipients, currentMember) {
   if (!recipients) return 'Me only';
-  if (recipients.mode === 'me') return 'Me only';
+  if (recipients.mode === 'me') {
+    if (recipients.creator && currentMember && recipients.creator.id !== currentMember.id) {
+      return `Only ${recipients.creator.name || 'creator'}`;
+    }
+    return 'Me only';
+  }
   if (recipients.mode === 'all') return 'All members';
   if (recipients.mode === 'specific') {
     const count = Array.isArray(recipients.members) ? recipients.members.length : 0;
@@ -104,7 +118,7 @@ const ICONS = {
   </svg>`
 };
 
-// Helper to create metadata column element securely
+// Helper to create metadata column element securely using textContent
 function createMetaColumn(iconSvg, label, value) {
   const col = document.createElement('div');
   col.className = 'alert-meta-col';
@@ -124,12 +138,20 @@ function createMetaColumn(iconSvg, label, value) {
 
   const valEl = document.createElement('span');
   valEl.className = 'alert-meta-val';
-  valEl.textContent = value;
+  // Security: render Trello-sourced text strictly with textContent
+  valEl.textContent = String(value || '');
   infoEl.appendChild(valEl);
 
   col.appendChild(infoEl);
   return col;
 }
+
+// Global state for My Alerts page
+let allAlerts = [];
+let currentTab = 'all'; // 'all' | 'active' | 'paused'
+let currentBoardId = null;
+let currentMember = null;
+let globalErrorMessage = null;
 
 // Main page setup and rendering
 async function initMyAlertsPage() {
@@ -141,12 +163,6 @@ async function initMyAlertsPage() {
   if (topCreateBtn) {
     topCreateBtn.addEventListener('click', openCreateAlert);
   }
-
-  const container = document.getElementById('alerts-list-container');
-  if (!container) return;
-
-  let allAlerts = await getAlerts(t);
-  let currentTab = 'all'; // 'all' | 'active' | 'paused'
 
   // Tab buttons
   const tabs = document.querySelectorAll('.alerts-tab');
@@ -166,230 +182,455 @@ async function initMyAlertsPage() {
     });
   });
 
-  function updateTabCounts() {
-    const totalCount = allAlerts.length;
-    const activeCount = allAlerts.filter((a) => a.status === 'active').length;
-    const pausedCount = allAlerts.filter((a) => a.status === 'paused').length;
+  // Document click listener to close kebab dropdowns when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.kebab-wrapper')) {
+      document.querySelectorAll('.kebab-dropdown.open').forEach((d) => d.classList.remove('open'));
+    }
+  });
 
-    const countAllEl = document.getElementById('tab-count-all');
-    const countActiveEl = document.getElementById('tab-count-active');
-    const countPausedEl = document.getElementById('tab-count-paused');
+  await loadAndRenderAlerts();
+}
 
-    if (countAllEl) countAllEl.textContent = `(${totalCount})`;
-    if (countActiveEl) countActiveEl.textContent = `(${activeCount})`;
-    if (countPausedEl) countPausedEl.textContent = `(${pausedCount})`;
-  }
+function updateTabCounts() {
+  const totalCount = allAlerts.length;
+  const activeCount = allAlerts.filter((a) => a.status === 'active').length;
+  const pausedCount = allAlerts.filter((a) => a.status === 'paused').length;
 
-  function renderAlertCards() {
-    container.innerHTML = '';
-    updateTabCounts();
+  const countAllEl = document.getElementById('tab-count-all');
+  const countActiveEl = document.getElementById('tab-count-active');
+  const countPausedEl = document.getElementById('tab-count-paused');
 
-    const filtered = allAlerts.filter((alert) => {
-      if (currentTab === 'active') return alert.status === 'active';
-      if (currentTab === 'paused') return alert.status === 'paused';
-      return true;
-    });
+  if (countAllEl) countAllEl.textContent = `(${totalCount})`;
+  if (countActiveEl) countActiveEl.textContent = `(${activeCount})`;
+  if (countPausedEl) countPausedEl.textContent = `(${pausedCount})`;
+}
 
-    if (filtered.length === 0) {
-      const emptyState = document.createElement('div');
-      emptyState.className = 'alerts-empty-state';
+// Shows skeleton loading state
+function renderLoadingSkeleton() {
+  const container = document.getElementById('alerts-list-container');
+  if (!container) return;
 
-      const emptyIcon = document.createElement('div');
-      emptyIcon.className = 'empty-state-icon';
-      emptyIcon.innerHTML = `
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="12" y1="8" x2="12" y2="12"></line>
-          <line x1="12" y1="16" x2="12.01" y2="16"></line>
-        </svg>
-      `;
-      emptyState.appendChild(emptyIcon);
+  container.innerHTML = `
+    <div class="alerts-loading-skeleton">
+      <div class="alert-skeleton-card"></div>
+      <div class="alert-skeleton-card"></div>
+    </div>
+  `;
+}
 
-      const emptyTitle = document.createElement('h3');
-      emptyTitle.className = 'empty-state-title';
-      emptyTitle.textContent = currentTab === 'all'
-        ? 'No alerts created yet'
-        : currentTab === 'active'
-        ? 'No active alerts'
-        : 'No paused alerts';
-      emptyState.appendChild(emptyTitle);
+// Shows Not Connected state with interactive auth button
+function renderNotConnectedState() {
+  const container = document.getElementById('alerts-list-container');
+  if (!container) return;
 
-      const emptySub = document.createElement('p');
-      emptySub.className = 'empty-state-subtext';
-      emptySub.textContent = currentTab === 'all'
-        ? 'Get started by creating your first automated alert.'
-        : 'All of your alerts are currently in another state.';
-      emptyState.appendChild(emptySub);
+  container.innerHTML = '';
+  updateTabCounts();
 
-      if (currentTab === 'all') {
-        const createBtn = document.createElement('button');
-        createBtn.className = 'btn-primary';
-        createBtn.textContent = '+ Create Alert';
-        createBtn.addEventListener('click', openCreateAlert);
-        emptyState.appendChild(createBtn);
-      }
+  const emptyState = document.createElement('div');
+  emptyState.className = 'alerts-empty-state';
 
-      container.appendChild(emptyState);
-      return;
+  const emptyIcon = document.createElement('div');
+  emptyIcon.className = 'empty-state-icon';
+  emptyIcon.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+    </svg>
+  `;
+  emptyState.appendChild(emptyIcon);
+
+  const emptyTitle = document.createElement('h3');
+  emptyTitle.className = 'empty-state-title';
+  emptyTitle.textContent = 'Connect your Trello account';
+  emptyState.appendChild(emptyTitle);
+
+  const emptySub = document.createElement('p');
+  emptySub.className = 'empty-state-subtext';
+  emptySub.textContent = 'Authorize Event Alerts to view and manage your board alerts.';
+  emptyState.appendChild(emptySub);
+
+  const connectBtn = document.createElement('button');
+  connectBtn.className = 'btn-primary';
+  connectBtn.textContent = 'Connect your Trello account';
+
+  connectBtn.addEventListener('click', async () => {
+    connectBtn.disabled = true;
+    connectBtn.textContent = 'Connecting…';
+    try {
+      await getToken(t, { interactive: true });
+      await loadAndRenderAlerts();
+    } catch (err) {
+      console.error('Failed to authorize:', err);
+      connectBtn.disabled = false;
+      connectBtn.textContent = 'Connect your Trello account';
+    }
+  });
+
+  emptyState.appendChild(connectBtn);
+  container.appendChild(emptyState);
+}
+
+// Shows Error state with Retry button
+function renderErrorState(errorMessage) {
+  const container = document.getElementById('alerts-list-container');
+  if (!container) return;
+
+  container.innerHTML = '';
+  updateTabCounts();
+
+  const emptyState = document.createElement('div');
+  emptyState.className = 'alerts-empty-state';
+
+  const emptyIcon = document.createElement('div');
+  emptyIcon.className = 'empty-state-icon';
+  emptyIcon.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"></circle>
+      <line x1="12" y1="8" x2="12" y2="12"></line>
+      <line x1="12" y1="16" x2="12.01" y2="16"></line>
+    </svg>
+  `;
+  emptyState.appendChild(emptyIcon);
+
+  const emptyTitle = document.createElement('h3');
+  emptyTitle.className = 'empty-state-title';
+  emptyTitle.textContent = 'Failed to load alerts';
+  emptyState.appendChild(emptyTitle);
+
+  const emptySub = document.createElement('p');
+  emptySub.className = 'empty-state-subtext';
+  emptySub.textContent = errorMessage || 'Something went wrong while fetching alerts for this board.';
+  emptyState.appendChild(emptySub);
+
+  const retryBtn = document.createElement('button');
+  retryBtn.className = 'btn-primary';
+  retryBtn.textContent = 'Retry';
+  retryBtn.addEventListener('click', () => loadAndRenderAlerts());
+  emptyState.appendChild(retryBtn);
+
+  container.appendChild(emptyState);
+}
+
+// Fetch alerts from backend and render
+async function loadAndRenderAlerts() {
+  renderLoadingSkeleton();
+
+  try {
+    if (t && typeof t.board === 'function') {
+      const b = await t.board('id');
+      currentBoardId = b?.id || null;
     }
 
-    filtered.forEach((alert) => {
-      const card = document.createElement('div');
-      card.className = 'alert-item-card';
-      card.setAttribute('data-alert-id', alert.id);
+    if (!currentBoardId) {
+      currentBoardId = 'board-mock-1';
+    }
 
-      const alertType = alert.alertType || (alert.conditions && alert.conditions.alertType) || 'stuck-in-list';
-      const typeObj = alertTypes.find((t) => t.id === alertType) || {
-        id: alertType,
-        title: 'Custom Alert',
-        description: 'Alert configuration',
-        iconBg: '#FEE2E2',
-        iconColor: '#EF4444'
-      };
+    currentMember = await fetchCurrentMember(t);
+    allAlerts = await listAlerts(t, currentBoardId);
+    globalErrorMessage = null;
+    renderAlertCards();
+  } catch (err) {
+    console.error('loadAndRenderAlerts error:', err);
+    if (err instanceof NotAuthorizedError) {
+      renderNotConnectedState();
+    } else {
+      renderErrorState(err.message || 'Unable to connect to server');
+    }
+  }
+}
 
-      // --- Top Row ---
-      const topRow = document.createElement('div');
-      topRow.className = 'alert-card-top';
+function showCardInlineError(card, message) {
+  let errBox = card.querySelector('.card-inline-error');
+  if (!errBox) {
+    errBox = document.createElement('div');
+    errBox.className = 'card-inline-error';
+    card.appendChild(errBox);
+  }
+  errBox.textContent = message;
+  setTimeout(() => {
+    if (errBox) errBox.remove();
+  }, 4000);
+}
 
-      // Left: Icon + Title + Description
-      const topLeft = document.createElement('div');
-      topLeft.className = 'alert-card-top-left';
+// Main card rendering based on currentTab
+function renderAlertCards() {
+  const container = document.getElementById('alerts-list-container');
+  if (!container) return;
 
-      const iconBadge = document.createElement('div');
-      iconBadge.className = 'alert-type-badge-icon';
-      iconBadge.style.backgroundColor = typeObj.iconBg;
-      iconBadge.innerHTML = getIconSvg(typeObj.id, typeObj.iconColor);
-      topLeft.appendChild(iconBadge);
+  container.innerHTML = '';
+  updateTabCounts();
 
-      const infoBox = document.createElement('div');
-      infoBox.className = 'alert-card-info';
+  // If there is an active global error message, show the banner
+  if (globalErrorMessage) {
+    const errorBanner = document.createElement('div');
+    errorBanner.className = 'alerts-inline-error-banner';
 
-      const titleEl = document.createElement('h3');
-      titleEl.className = 'alert-card-title';
-      titleEl.textContent = typeObj.title;
-      infoBox.appendChild(titleEl);
+    const errText = document.createElement('span');
+    errText.textContent = globalErrorMessage;
+    errorBanner.appendChild(errText);
 
-      const descEl = document.createElement('p');
-      descEl.className = 'alert-card-description';
-      descEl.textContent = summarizeConditions(alert);
-      infoBox.appendChild(descEl);
+    const closeBannerBtn = document.createElement('button');
+    closeBannerBtn.className = 'btn-close-error';
+    closeBannerBtn.innerHTML = '&times;';
+    closeBannerBtn.addEventListener('click', () => {
+      globalErrorMessage = null;
+      errorBanner.remove();
+    });
+    errorBanner.appendChild(closeBannerBtn);
 
-      topLeft.appendChild(infoBox);
-      topRow.appendChild(topLeft);
+    container.appendChild(errorBanner);
+  }
 
-      // Right: Toggle Switch + Status Pill + Kebab Button
-      const topRight = document.createElement('div');
-      topRight.className = 'alert-card-top-right';
+  const filtered = allAlerts.filter((alert) => {
+    if (currentTab === 'active') return alert.status === 'active';
+    if (currentTab === 'paused') return alert.status === 'paused';
+    return true;
+  });
 
-      // Toggle Switch
-      const toggleLabel = document.createElement('label');
-      toggleLabel.className = 'toggle-switch';
-      toggleLabel.setAttribute('aria-label', `Toggle ${typeObj.title}`);
+  if (filtered.length === 0) {
+    const emptyState = document.createElement('div');
+    emptyState.className = 'alerts-empty-state';
 
-      const toggleInput = document.createElement('input');
-      toggleInput.type = 'checkbox';
-      toggleInput.checked = alert.status === 'active';
+    const emptyIcon = document.createElement('div');
+    emptyIcon.className = 'empty-state-icon';
+    emptyIcon.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+      </svg>
+    `;
+    emptyState.appendChild(emptyIcon);
 
-      const toggleSlider = document.createElement('span');
-      toggleSlider.className = 'toggle-slider';
+    const emptyTitle = document.createElement('h3');
+    emptyTitle.className = 'empty-state-title';
+    emptyTitle.textContent = currentTab === 'all'
+      ? 'No alerts on this board yet'
+      : currentTab === 'active'
+      ? 'No active alerts'
+      : 'No paused alerts';
+    emptyState.appendChild(emptyTitle);
 
-      toggleLabel.appendChild(toggleInput);
-      toggleLabel.appendChild(toggleSlider);
-      topRight.appendChild(toggleLabel);
+    const emptySub = document.createElement('p');
+    emptySub.className = 'empty-state-subtext';
+    emptySub.textContent = currentTab === 'all'
+      ? 'Get started by creating your first automated alert.'
+      : 'All of your alerts are currently in another state.';
+    emptyState.appendChild(emptySub);
 
-      // Status Pill
-      const statusPill = document.createElement('span');
-      const isInitialActive = alert.status === 'active';
-      statusPill.className = isInitialActive ? 'status-pill-active' : 'status-pill-paused';
-      statusPill.textContent = isInitialActive ? 'Active' : 'Paused';
-      topRight.appendChild(statusPill);
+    if (currentTab === 'all') {
+      const createBtn = document.createElement('button');
+      createBtn.className = 'btn-primary';
+      createBtn.textContent = '+ Create Alert';
+      createBtn.addEventListener('click', openCreateAlert);
+      emptyState.appendChild(createBtn);
+    }
 
+    container.appendChild(emptyState);
+    return;
+  }
+
+  filtered.forEach((alert) => {
+    const card = document.createElement('div');
+    card.className = 'alert-item-card';
+    if (alert.status === 'paused') {
+      card.classList.add('is-paused');
+    }
+    card.setAttribute('data-alert-id', alert.id);
+
+    const alertType = alert.alertType || (alert.conditions && alert.conditions.alertType) || 'stuck-in-list';
+    const typeObj = alertTypes.find((t) => t.id === alertType) || {
+      id: alertType,
+      title: 'Custom Alert',
+      description: 'Alert configuration',
+      iconBg: '#FEE2E2',
+      iconColor: '#EF4444'
+    };
+
+    // --- Top Row ---
+    const topRow = document.createElement('div');
+    topRow.className = 'alert-card-top';
+
+    // Left: Icon + Title + Description
+    const topLeft = document.createElement('div');
+    topLeft.className = 'alert-card-top-left';
+
+    const iconBadge = document.createElement('div');
+    iconBadge.className = 'alert-type-badge-icon';
+    iconBadge.style.backgroundColor = typeObj.iconBg;
+    iconBadge.innerHTML = getIconSvg(typeObj.id, typeObj.iconColor);
+    topLeft.appendChild(iconBadge);
+
+    const infoBox = document.createElement('div');
+    infoBox.className = 'alert-card-info';
+
+    const titleEl = document.createElement('h3');
+    titleEl.className = 'alert-card-title';
+    titleEl.textContent = typeObj.title;
+    infoBox.appendChild(titleEl);
+
+    const descEl = document.createElement('p');
+    descEl.className = 'alert-card-description';
+    descEl.textContent = summarizeConditions(alert);
+    infoBox.appendChild(descEl);
+
+    topLeft.appendChild(infoBox);
+    topRow.appendChild(topLeft);
+
+    // Right: Toggle Switch + Status Pill + Kebab Button
+    const topRight = document.createElement('div');
+    topRight.className = 'alert-card-top-right';
+
+    // Toggle Switch
+    const toggleLabel = document.createElement('label');
+    toggleLabel.className = 'toggle-switch';
+    toggleLabel.setAttribute('aria-label', `Toggle ${typeObj.title}`);
+
+    const toggleInput = document.createElement('input');
+    toggleInput.type = 'checkbox';
+    toggleInput.checked = alert.status === 'active';
+
+    const toggleSlider = document.createElement('span');
+    toggleSlider.className = 'toggle-slider';
+
+    toggleLabel.appendChild(toggleInput);
+    toggleLabel.appendChild(toggleSlider);
+
+    // Status Pill
+    const statusPill = document.createElement('span');
+    const isInitialActive = alert.status === 'active';
+    statusPill.className = isInitialActive ? 'status-pill-active' : 'status-pill-paused';
+    statusPill.textContent = isInitialActive ? 'Active' : 'Paused';
+
+    const canManage = alert.canManage !== false;
+
+    // Read-only handling for toggle
+    if (!canManage) {
+      toggleInput.disabled = true;
+      toggleLabel.style.cursor = 'not-allowed';
+      toggleLabel.title = 'Only the creator or a board admin can change this';
+      toggleInput.title = 'Only the creator or a board admin can change this';
+    } else {
+      // Optimistic Toggle Listener
       toggleInput.addEventListener('change', async () => {
-        const newStatus = await toggleAlertStatus(alert.id, t);
-        alert.status = newStatus;
-        const isActive = newStatus === 'active';
+        const previousStatus = alert.status;
+        const targetStatus = toggleInput.checked ? 'active' : 'paused';
 
-        statusPill.className = isActive ? 'status-pill-active' : 'status-pill-paused';
-        statusPill.textContent = isActive ? 'Active' : 'Paused';
-
+        // 1. Optimistic UI update
+        alert.status = targetStatus;
+        const isNowActive = targetStatus === 'active';
+        statusPill.className = isNowActive ? 'status-pill-active' : 'status-pill-paused';
+        statusPill.textContent = isNowActive ? 'Active' : 'Paused';
+        card.classList.toggle('is-paused', !isNowActive);
         updateTabCounts();
 
-        // If tab is currently active or paused, smoothly remove card from current view
-        if (currentTab !== 'all') {
-          card.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
-          card.style.opacity = '0';
-          card.style.transform = 'scale(0.98)';
-          setTimeout(() => {
-            renderAlertCards();
-          }, 200);
+        toggleInput.disabled = true;
+
+        try {
+          await setAlertStatus(t, alert.id, targetStatus);
+          toggleInput.disabled = false;
+
+          // If current tab is active or paused, smoothly transition card
+          if (currentTab !== 'all') {
+            card.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+            card.style.opacity = '0';
+            card.style.transform = 'scale(0.98)';
+            setTimeout(() => {
+              renderAlertCards();
+            }, 200);
+          }
+        } catch (err) {
+          // 2. Roll back on failure
+          alert.status = previousStatus;
+          const wasActive = previousStatus === 'active';
+          toggleInput.checked = wasActive;
+          toggleInput.disabled = false;
+          statusPill.className = wasActive ? 'status-pill-active' : 'status-pill-paused';
+          statusPill.textContent = wasActive ? 'Active' : 'Paused';
+          card.classList.toggle('is-paused', !wasActive);
+          updateTabCounts();
+
+          if (err.status === 403) {
+            globalErrorMessage = "Only the alert's creator or a board admin can change this alert";
+            await loadAndRenderAlerts();
+          } else {
+            showCardInlineError(card, err.message || 'Failed to update alert status');
+          }
         }
       });
+    }
 
-      // Three Dots Kebab Button & Dropdown
-      const kebabWrapper = document.createElement('div');
-      kebabWrapper.className = 'kebab-wrapper';
+    topRight.appendChild(toggleLabel);
+    topRight.appendChild(statusPill);
 
-      const kebabBtn = document.createElement('button');
-      kebabBtn.type = 'button';
-      kebabBtn.className = 'btn-kebab';
-      kebabBtn.setAttribute('aria-label', 'Options');
-      kebabBtn.innerHTML = `
-        <svg viewBox="0 0 24 24" fill="currentColor">
-          <circle cx="12" cy="5" r="1.8"></circle>
-          <circle cx="12" cy="12" r="1.8"></circle>
-          <circle cx="12" cy="19" r="1.8"></circle>
-        </svg>
-      `;
+    // Three Dots Kebab Button & Dropdown
+    const kebabWrapper = document.createElement('div');
+    kebabWrapper.className = 'kebab-wrapper';
 
-      const dropdown = document.createElement('div');
-      dropdown.className = 'kebab-dropdown';
+    const kebabBtn = document.createElement('button');
+    kebabBtn.type = 'button';
+    kebabBtn.className = 'btn-kebab';
+    kebabBtn.setAttribute('aria-label', 'Options');
+    kebabBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="12" cy="5" r="1.8"></circle>
+        <circle cx="12" cy="12" r="1.8"></circle>
+        <circle cx="12" cy="19" r="1.8"></circle>
+      </svg>
+    `;
 
-      // Dropdown item 1: Edit Alert
-      const editItem = document.createElement('button');
-      editItem.type = 'button';
-      editItem.className = 'kebab-item';
-      editItem.innerHTML = `
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 20h9"></path>
-          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-        </svg>
-        <span>Edit Alert</span>
-      `;
+    const dropdown = document.createElement('div');
+    dropdown.className = 'kebab-dropdown';
+
+    // Dropdown item 1: Edit Alert
+    const editItem = document.createElement('button');
+    editItem.type = 'button';
+    editItem.className = 'kebab-item';
+    editItem.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 20h9"></path>
+        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+      </svg>
+      <span>Edit Alert</span>
+    `;
+
+    // Dropdown item 2: Delete
+    const deleteItem = document.createElement('button');
+    deleteItem.type = 'button';
+    deleteItem.className = 'kebab-item delete';
+    deleteItem.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 6 5 6 21 6"></polyline>
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+      </svg>
+      <span>Delete</span>
+    `;
+
+    if (!canManage) {
+      editItem.disabled = true;
+      editItem.classList.add('disabled');
+      editItem.title = 'Only the creator or a board admin can change this';
+
+      deleteItem.disabled = true;
+      deleteItem.classList.add('disabled');
+      deleteItem.title = 'Only the creator or a board admin can change this';
+    } else {
       editItem.addEventListener('click', async (e) => {
         e.stopPropagation();
         dropdown.classList.remove('open');
-
-        // Load into draft with editingAlertId and open Review in edit mode
-        const editDraft = {
-          alertType: alert.alertType,
-          conditions: alert.conditions,
-          recipients: alert.recipients,
-          editingAlertId: alert.id
-        };
-
-        if (t && typeof t.set === 'function') {
-          try {
-            await t.set('board', 'private', 'alertDraft', editDraft);
-          } catch (err) {}
-        }
         try {
-          localStorage.setItem('alertDraft', JSON.stringify(editDraft));
-        } catch (err) {}
-
-        openReview();
+          await startEditingAlert(t, alert, 'my-alerts');
+        } catch (err) {
+          if (err.status === 403) {
+            globalErrorMessage = "Only the alert's creator or a board admin can change this alert";
+            await loadAndRenderAlerts();
+          } else {
+            showCardInlineError(card, err.message || 'Failed to edit alert');
+          }
+        }
       });
 
-      // Dropdown item 2: Delete
-      const deleteItem = document.createElement('button');
-      deleteItem.type = 'button';
-      deleteItem.className = 'kebab-item delete';
-      deleteItem.innerHTML = `
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="3 6 5 6 21 6"></polyline>
-          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-        </svg>
-        <span>Delete</span>
-      `;
       deleteItem.addEventListener('click', (e) => {
         e.stopPropagation();
         dropdown.classList.remove('open');
@@ -419,12 +660,28 @@ async function initMyAlertsPage() {
         confirmDeleteBtn.type = 'button';
         confirmDeleteBtn.className = 'btn-danger-solid';
         confirmDeleteBtn.textContent = 'Delete';
+
         confirmDeleteBtn.addEventListener('click', async () => {
           confirmDeleteBtn.disabled = true;
+          cancelBtn.disabled = true;
           confirmDeleteBtn.textContent = 'Deleting…';
-          await deleteAlert(alert.id, t);
-          allAlerts = allAlerts.filter((a) => a.id !== alert.id);
-          renderAlertCards();
+
+          try {
+            await deleteAlert(t, alert.id);
+            allAlerts = allAlerts.filter((a) => a.id !== alert.id);
+            renderAlertCards();
+          } catch (err) {
+            console.error('Delete failed:', err);
+            if (err.status === 403) {
+              globalErrorMessage = "Only the alert's creator or a board admin can change this alert";
+              await loadAndRenderAlerts();
+            } else {
+              confirmDeleteBtn.disabled = false;
+              cancelBtn.disabled = false;
+              confirmDeleteBtn.textContent = 'Delete';
+              confirmText.textContent = err.message || 'Failed to delete alert. Please try again.';
+            }
+          }
         });
 
         actions.appendChild(cancelBtn);
@@ -432,100 +689,90 @@ async function initMyAlertsPage() {
         confirmBox.appendChild(actions);
         card.appendChild(confirmBox);
       });
-
-      dropdown.appendChild(editItem);
-      dropdown.appendChild(deleteItem);
-
-      kebabBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        // Close any other open dropdowns first
-        document.querySelectorAll('.kebab-dropdown.open').forEach((d) => {
-          if (d !== dropdown) d.classList.remove('open');
-        });
-        dropdown.classList.toggle('open');
-      });
-
-      kebabWrapper.appendChild(kebabBtn);
-      kebabWrapper.appendChild(dropdown);
-      topRight.appendChild(kebabWrapper);
-
-      topRow.appendChild(topRight);
-      card.appendChild(topRow);
-
-      // --- Bottom Row (Metadata Columns) ---
-      const metaRow = document.createElement('div');
-      metaRow.className = 'alert-card-meta-row';
-
-      // 1. Board
-      const boardCol = createMetaColumn(ICONS.board, 'Board', alert.boardName || 'Product Development');
-      metaRow.appendChild(boardCol);
-
-      const conditions = alert.conditions || {};
-
-      // 2. Alert type specific fields
-      if (alertType === 'stuck-in-list') {
-        const listName = conditions.listName || 'In Progress';
-        const listCol = createMetaColumn(ICONS.list, 'List', listName);
-        metaRow.appendChild(listCol);
-
-        const days = conditions.days || 3;
-        const daysCol = createMetaColumn(ICONS.calendar, 'Days', `${days} days`);
-        metaRow.appendChild(daysCol);
-      } else if (alertType === 'no-activity') {
-        const days = conditions.days || 5;
-        const noActCol = createMetaColumn(ICONS.calendar, 'No activity', `${days} days`);
-        metaRow.appendChild(noActCol);
-
-        const notifyCol = createMetaColumn(ICONS.notify, 'Notify', formatRecipientSummary(alert.recipients));
-        metaRow.appendChild(notifyCol);
-      } else if (alertType === 'overdue-in-list') {
-        const listName = conditions.listName || 'On Hold';
-        const listCol = createMetaColumn(ICONS.list, 'List', listName);
-        metaRow.appendChild(listCol);
-
-        const condVal = conditions.timing === 'overdue-by-days'
-          ? `Overdue by ${conditions.overdueDays || conditions.days || 1} days`
-          : 'Overdue';
-        const condCol = createMetaColumn(ICONS.condition, 'Condition', condVal);
-        metaRow.appendChild(condCol);
-
-        const notifyCol = createMetaColumn(ICONS.notify, 'Notify', formatRecipientSummary(alert.recipients));
-        metaRow.appendChild(notifyCol);
-      } else if (alertType === 'due-soon-unassigned') {
-        const dueVal = conditions.timing === 'before-due-date'
-          ? `${conditions.dueSoonDays || conditions.days || 2} days`
-          : 'Today';
-        const dueCol = createMetaColumn(ICONS.calendar, 'Due in', dueVal);
-        metaRow.appendChild(dueCol);
-
-        const notifyCol = createMetaColumn(ICONS.notify, 'Notify', formatRecipientSummary(alert.recipients));
-        metaRow.appendChild(notifyCol);
-      } else {
-        if (conditions.listName) {
-          const listCol = createMetaColumn(ICONS.list, 'List', conditions.listName);
-          metaRow.appendChild(listCol);
-        }
-        if (conditions.days != null) {
-          const daysCol = createMetaColumn(ICONS.calendar, 'Days', `${conditions.days} days`);
-          metaRow.appendChild(daysCol);
-        }
-        const notifyCol = createMetaColumn(ICONS.notify, 'Notify', formatRecipientSummary(alert.recipients));
-        metaRow.appendChild(notifyCol);
-      }
-
-      card.appendChild(metaRow);
-      container.appendChild(card);
-    });
-  }
-
-  // Initial render
-  renderAlertCards();
-
-  // Document click listener to close kebab dropdowns when clicking outside
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.kebab-wrapper')) {
-      document.querySelectorAll('.kebab-dropdown.open').forEach((d) => d.classList.remove('open'));
     }
+
+    dropdown.appendChild(editItem);
+    dropdown.appendChild(deleteItem);
+
+    kebabBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('.kebab-dropdown.open').forEach((d) => {
+        if (d !== dropdown) d.classList.remove('open');
+      });
+      dropdown.classList.toggle('open');
+    });
+
+    kebabWrapper.appendChild(kebabBtn);
+    kebabWrapper.appendChild(dropdown);
+    topRight.appendChild(kebabWrapper);
+
+    topRow.appendChild(topRight);
+    card.appendChild(topRow);
+
+    // --- Bottom Row (Metadata Columns) ---
+    // Security: render all Trello-sourced text strictly with textContent
+    const metaRow = document.createElement('div');
+    metaRow.className = 'alert-card-meta-row';
+
+    // 1. Board
+    const boardCol = createMetaColumn(ICONS.board, 'Board', alert.boardName || 'Current Board');
+    metaRow.appendChild(boardCol);
+
+    const conditions = alert.conditions || {};
+
+    // 2. Alert type specific fields
+    if (alertType === 'stuck-in-list') {
+      const listName = conditions.listName || 'Any list';
+      const listCol = createMetaColumn(ICONS.list, 'List', listName);
+      metaRow.appendChild(listCol);
+
+      const days = conditions.days != null ? conditions.days : 3;
+      const daysCol = createMetaColumn(ICONS.calendar, 'Days', `${days} days`);
+      metaRow.appendChild(daysCol);
+    } else if (alertType === 'no-activity') {
+      const days = conditions.days != null ? conditions.days : 5;
+      const noActCol = createMetaColumn(ICONS.calendar, 'No activity', `${days} days`);
+      metaRow.appendChild(noActCol);
+
+      const notifyCol = createMetaColumn(ICONS.notify, 'Notify', formatRecipientSummary(alert.recipients, currentMember));
+      metaRow.appendChild(notifyCol);
+    } else if (alertType === 'overdue-in-list') {
+      const listName = conditions.listName || 'Any list';
+      const listCol = createMetaColumn(ICONS.list, 'List', listName);
+      metaRow.appendChild(listCol);
+
+      const condVal = conditions.timing === 'overdue-by-days'
+        ? `Overdue by ${conditions.overdueDays || conditions.days || 1} days`
+        : 'Overdue';
+      const condCol = createMetaColumn(ICONS.condition, 'Condition', condVal);
+      metaRow.appendChild(condCol);
+
+      const notifyCol = createMetaColumn(ICONS.notify, 'Notify', formatRecipientSummary(alert.recipients, currentMember));
+      metaRow.appendChild(notifyCol);
+    } else if (alertType === 'due-soon-unassigned') {
+      const dueVal = conditions.timing === 'before-due-date'
+        ? `${conditions.dueSoonDays || conditions.days || 2} days`
+        : 'Today';
+      const dueCol = createMetaColumn(ICONS.calendar, 'Due in', dueVal);
+      metaRow.appendChild(dueCol);
+
+      const notifyCol = createMetaColumn(ICONS.notify, 'Notify', formatRecipientSummary(alert.recipients, currentMember));
+      metaRow.appendChild(notifyCol);
+    } else {
+      if (conditions.listName) {
+        const listCol = createMetaColumn(ICONS.list, 'List', conditions.listName);
+        metaRow.appendChild(listCol);
+      }
+      if (conditions.days != null) {
+        const daysCol = createMetaColumn(ICONS.calendar, 'Days', `${conditions.days} days`);
+        metaRow.appendChild(daysCol);
+      }
+      const notifyCol = createMetaColumn(ICONS.notify, 'Notify', formatRecipientSummary(alert.recipients, currentMember));
+      metaRow.appendChild(notifyCol);
+    }
+
+    card.appendChild(metaRow);
+    container.appendChild(card);
   });
 }
 

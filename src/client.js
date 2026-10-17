@@ -1,4 +1,5 @@
 /* global TrelloPowerUp */
+import { TRELLO_APP_KEY, TRELLO_APP_NAME, TRELLO_APP_AUTHOR } from './config.js';
 
 // Initialize the Trello Power-Up connector
 window.TrelloPowerUp.initialize(
@@ -26,9 +27,8 @@ window.TrelloPowerUp.initialize(
     }
   },
   {
-    // TODO: Real appKey, appName, and appAuthor values go in once the Power-Up is registered in Trello's admin
-    appKey: 'YOUR_TRELLO_API_KEY',
-    appName: 'Event Alerts',
-    appAuthor: 'Event Alerts Team'
+    appKey: TRELLO_APP_KEY,
+    appName: TRELLO_APP_NAME,
+    appAuthor: TRELLO_APP_AUTHOR
   }
 );

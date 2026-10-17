@@ -2,12 +2,21 @@
 import { alertTypes, getIconSvg } from './alert-types.js';
 import { summarizeConditions } from './condition-summary.js';
 import { renderAlertSummaryRows } from './alert-summary.js';
-import { deleteAlert } from './alerts-api.js';
+import { getAlert, deleteAlert } from './alerts-api.js';
+import { startEditingAlert } from './edit-alert.js';
 import { goToMyAlerts } from './navigation.js';
+import { TRELLO_APP_KEY, TRELLO_APP_NAME, TRELLO_APP_AUTHOR } from './config.js';
+import { fetchCurrentMember } from './board-data.js';
 
 // Initialize the Trello Power-Up iframe connector safely
 const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
-const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe ? window.TrelloPowerUp.iframe() : null;
+const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe
+  ? window.TrelloPowerUp.iframe({
+      appKey: TRELLO_APP_KEY,
+      appName: TRELLO_APP_NAME,
+      appAuthor: TRELLO_APP_AUTHOR
+    })
+  : null;
 
 // Navigation helpers
 function openHome() {
@@ -20,11 +29,6 @@ function openStep1() {
   window.location.href = targetUrl;
 }
 
-function openReview() {
-  const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./review.html') : './review.html';
-  window.location.href = targetUrl;
-}
-
 // Setup sidebar navigation
 function setupSidebarNav() {
   const navButtons = document.querySelectorAll('.nav-item');
@@ -34,7 +38,7 @@ function setupSidebarNav() {
       if (target === 'home') {
         openHome();
       } else if (target === 'my-alerts') {
-        goToMyAlerts();
+        goToMyAlerts(t);
       } else if (target === 'create-alert') {
         openStep1();
       }
@@ -56,7 +60,7 @@ function setupCloseButton() {
   });
 }
 
-// Load last saved alert data
+// Load last saved alert data pointer
 async function loadLastSavedAlert() {
   let savedData = null;
 
@@ -114,20 +118,18 @@ async function clearDraft() {
   }
 }
 
-// Save draft
-async function saveDraft(draft) {
-  if (t && typeof t.set === 'function') {
-    try {
-      await t.set('board', 'private', 'alertDraft', draft);
-    } catch (err) {
-      console.warn('Error saving draft to Trello storage:', err);
-    }
-  }
-  try {
-    localStorage.setItem('alertDraft', JSON.stringify(draft));
-  } catch (err) {
-    console.warn('Error saving draft to localStorage:', err);
-  }
+function showEmptyState(container) {
+  container.innerHTML = `
+    <div class="coming-soon-banner" style="text-align: center; padding: 40px 20px;">
+      <p style="font-weight: 600; font-size: 16px; color: var(--text-dark); margin-bottom: 8px;">No alert to show</p>
+      <p style="color: var(--text-muted); margin-bottom: 20px;">You haven't created or saved an alert yet.</p>
+      <button id="btn-empty-home" class="btn-primary">
+        Go to Home
+      </button>
+    </div>
+  `;
+  const homeBtn = document.getElementById('btn-empty-home');
+  if (homeBtn) homeBtn.addEventListener('click', openHome);
 }
 
 // Main page setup and rendering
@@ -139,23 +141,28 @@ async function initAlertCreatedPage() {
   if (!container) return;
 
   const savedData = await loadLastSavedAlert();
+  const alertId = savedData && (savedData.alertId || (savedData.alert && savedData.alert.id));
 
-  if (!savedData || !savedData.alert) {
-    container.innerHTML = `
-      <div class="coming-soon-banner" style="text-align: center; padding: 40px 20px;">
-        <p style="font-weight: 600; font-size: 16px; color: var(--text-dark); margin-bottom: 8px;">No alert to show</p>
-        <p style="color: var(--text-muted); margin-bottom: 20px;">You haven't created or saved an alert yet.</p>
-        <button id="btn-empty-home" class="btn-primary">
-          Go to Home
-        </button>
-      </div>
-    `;
-    const homeBtn = document.getElementById('btn-empty-home');
-    if (homeBtn) homeBtn.addEventListener('click', openHome);
+  if (!alertId) {
+    showEmptyState(container);
     return;
   }
 
-  const alert = savedData.alert;
+  let alert = null;
+  try {
+    alert = await getAlert(t, alertId);
+  } catch (err) {
+    console.warn('Failed to load alert by ID:', err);
+    showEmptyState(container);
+    return;
+  }
+
+  if (!alert) {
+    showEmptyState(container);
+    return;
+  }
+
+  const currentMember = await fetchCurrentMember(t);
   const savedAs = savedData.savedAs || 'created';
 
   container.innerHTML = '';
@@ -172,18 +179,11 @@ async function initAlertCreatedPage() {
   sparklesSvg.setAttribute('class', 'success-sparkles');
   sparklesSvg.setAttribute('viewBox', '0 0 90 90');
   sparklesSvg.innerHTML = `
-    <!-- Top-Right: green line, blue dot -->
     <line x1="65" y1="25" x2="72" y2="18" stroke="#10B981" stroke-width="2.2" stroke-linecap="round" />
     <circle cx="78" cy="28" r="2.5" fill="#3B82F6" />
-
-    <!-- Top-Left: blue line, green dot -->
     <line x1="25" y1="25" x2="18" y2="18" stroke="#3B82F6" stroke-width="2.2" stroke-linecap="round" />
     <circle cx="12" cy="27" r="2.5" fill="#10B981" />
-
-    <!-- Bottom-Left: blue line -->
     <line x1="24" y1="66" x2="18" y2="72" stroke="#3B82F6" stroke-width="2.2" stroke-linecap="round" />
-
-    <!-- Bottom-Right: blue line -->
     <line x1="66" y1="66" x2="73" y2="73" stroke="#3B82F6" stroke-width="2.2" stroke-linecap="round" />
   `;
   markWrapper.appendChild(sparklesSvg);
@@ -197,7 +197,6 @@ async function initAlertCreatedPage() {
     </svg>
   `;
   markWrapper.appendChild(circle);
-
   pageWrapper.appendChild(markWrapper);
 
   // 2. Headings
@@ -216,12 +215,12 @@ async function initAlertCreatedPage() {
   alertCard.className = 'review-card';
   alertCard.style.width = '100%';
 
-  // Banner at top with "● Active" pill
+  // Banner at top with "● Active" / "● Paused" pill
   const banner = document.createElement('div');
   banner.className = 'alert-type-banner';
 
   const alertType = alert.alertType || (alert.conditions && alert.conditions.alertType) || 'stuck-in-list';
-  const typeObj = alertTypes.find((t) => t.id === alertType) || {
+  const typeObj = alertTypes.find((item) => item.id === alertType) || {
     id: alertType,
     title: 'Custom Alert',
     description: 'Alert configuration',
@@ -251,11 +250,14 @@ async function initAlertCreatedPage() {
 
   banner.appendChild(bannerInfo);
 
-  // Active Status Pill (top right)
-  const activePill = document.createElement('span');
-  activePill.className = 'status-pill-active';
-  activePill.innerHTML = '<span class="status-dot-active"></span>Active';
-  banner.appendChild(activePill);
+  // Status Pill (top right)
+  const isAlertActive = alert.status === 'active';
+  const statusPill = document.createElement('span');
+  statusPill.className = isAlertActive ? 'status-pill-active' : 'status-pill-paused';
+  statusPill.innerHTML = isAlertActive
+    ? '<span class="status-dot-active"></span>Active'
+    : 'Paused';
+  banner.appendChild(statusPill);
 
   alertCard.appendChild(banner);
 
@@ -264,122 +266,119 @@ async function initAlertCreatedPage() {
   table.className = 'review-table';
   alertCard.appendChild(table);
 
-  // Render shared summary rows
+  // Render shared summary rows with currentMember support for "Me only"
   renderAlertSummaryRows({
     container: table,
     alert,
-    boardName: alert.boardName
+    boardName: alert.boardName,
+    currentMember
   });
 
-  // Card divider
-  const divider = document.createElement('hr');
-  divider.className = 'card-actions-divider';
-  alertCard.appendChild(divider);
+  // Hide Edit and Delete if alert.canManage is false
+  if (alert.canManage !== false) {
+    // Card divider
+    const divider = document.createElement('hr');
+    divider.className = 'card-actions-divider';
+    alertCard.appendChild(divider);
 
-  // Card Actions (Edit Alert & Delete)
-  const cardActionsRow = document.createElement('div');
-  cardActionsRow.className = 'card-actions-row';
+    // Card Actions (Edit Alert & Delete)
+    const cardActionsRow = document.createElement('div');
+    cardActionsRow.className = 'card-actions-row';
 
-  const editBtn = document.createElement('button');
-  editBtn.type = 'button';
-  editBtn.className = 'btn-card-action btn-card-edit';
-  editBtn.innerHTML = `
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 20h9"></path>
-      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-    </svg>
-    <span>Edit Alert</span>
-  `;
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'btn-card-action btn-card-edit';
+    editBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 20h9"></path>
+        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+      </svg>
+      <span>Edit Alert</span>
+    `;
 
-  editBtn.addEventListener('click', async () => {
-    // Load saved alert into draft and open review page in edit mode
-    await saveDraft({
-      alertType: alert.alertType,
-      conditions: alert.conditions,
-      recipients: alert.recipients,
-      editingAlertId: alert.id
-    });
-    openReview();
-  });
-
-  const deleteBtn = document.createElement('button');
-  deleteBtn.type = 'button';
-  deleteBtn.className = 'btn-card-action btn-card-delete';
-  deleteBtn.innerHTML = `
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="3 6 5 6 21 6"></polyline>
-      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-    </svg>
-    <span>Delete</span>
-  `;
-
-  cardActionsRow.appendChild(editBtn);
-  cardActionsRow.appendChild(deleteBtn);
-  alertCard.appendChild(cardActionsRow);
-
-  // Inline Delete Confirmation
-  deleteBtn.addEventListener('click', () => {
-    cardActionsRow.innerHTML = '';
-
-    const confirmBox = document.createElement('div');
-    confirmBox.className = 'delete-confirm-box';
-
-    const confirmText = document.createElement('span');
-    confirmText.className = 'delete-confirm-text';
-    confirmText.textContent = 'Delete this alert? This can’t be undone.';
-    confirmBox.appendChild(confirmText);
-
-    const confirmActions = document.createElement('div');
-    confirmActions.className = 'delete-confirm-actions';
-
-    const cancelDeleteBtn = document.createElement('button');
-    cancelDeleteBtn.type = 'button';
-    cancelDeleteBtn.className = 'btn-outline btn-sm';
-    cancelDeleteBtn.textContent = 'Cancel';
-
-    cancelDeleteBtn.addEventListener('click', () => {
-      confirmBox.remove();
-      cardActionsRow.appendChild(editBtn);
-      cardActionsRow.appendChild(deleteBtn);
+    editBtn.addEventListener('click', async () => {
+      await startEditingAlert(t, alert, 'alert-created');
     });
 
-    const confirmDeleteBtn = document.createElement('button');
-    confirmDeleteBtn.type = 'button';
-    confirmDeleteBtn.className = 'btn-danger-solid';
-    confirmDeleteBtn.textContent = 'Delete';
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'btn-card-action btn-card-delete';
+    deleteBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 6 5 6 21 6"></polyline>
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+      </svg>
+      <span>Delete</span>
+    `;
 
-    const deleteErrorSpan = document.createElement('span');
-    deleteErrorSpan.className = 'error-message';
-    deleteErrorSpan.style.marginRight = '8px';
+    cardActionsRow.appendChild(editBtn);
+    cardActionsRow.appendChild(deleteBtn);
+    alertCard.appendChild(cardActionsRow);
 
-    confirmDeleteBtn.addEventListener('click', async () => {
-      confirmDeleteBtn.disabled = true;
-      cancelDeleteBtn.disabled = true;
-      confirmDeleteBtn.textContent = 'Deleting…';
-      deleteErrorSpan.classList.remove('visible');
+    // Inline Delete Confirmation
+    deleteBtn.addEventListener('click', () => {
+      cardActionsRow.innerHTML = '';
 
-      try {
-        await deleteAlert(alert.id);
-        await clearLastSavedAlert();
+      const confirmBox = document.createElement('div');
+      confirmBox.className = 'delete-confirm-box';
 
-        // Replace card content with "Alert deleted" state
-        alertCard.innerHTML = '<div class="card-deleted-state">Alert deleted</div>';
-      } catch (err) {
-        console.error('Delete alert failed:', err);
-        deleteErrorSpan.textContent = 'Failed to delete alert. Please try again.';
-        deleteErrorSpan.classList.add('visible');
-        confirmBox.insertBefore(deleteErrorSpan, confirmActions);
-        confirmDeleteBtn.disabled = false;
-        cancelDeleteBtn.disabled = false;
-        confirmDeleteBtn.textContent = 'Delete';
-      }
+      const confirmText = document.createElement('span');
+      confirmText.className = 'delete-confirm-text';
+      confirmText.textContent = 'Delete this alert? This can’t be undone.';
+      confirmBox.appendChild(confirmText);
+
+      const confirmActions = document.createElement('div');
+      confirmActions.className = 'delete-confirm-actions';
+
+      const cancelDeleteBtn = document.createElement('button');
+      cancelDeleteBtn.type = 'button';
+      cancelDeleteBtn.className = 'btn-outline btn-sm';
+      cancelDeleteBtn.textContent = 'Cancel';
+
+      cancelDeleteBtn.addEventListener('click', () => {
+        confirmBox.remove();
+        cardActionsRow.appendChild(editBtn);
+        cardActionsRow.appendChild(deleteBtn);
+      });
+
+      const confirmDeleteBtn = document.createElement('button');
+      confirmDeleteBtn.type = 'button';
+      confirmDeleteBtn.className = 'btn-danger-solid';
+      confirmDeleteBtn.textContent = 'Delete';
+
+      const deleteErrorSpan = document.createElement('span');
+      deleteErrorSpan.className = 'error-message';
+      deleteErrorSpan.style.marginRight = '8px';
+
+      confirmDeleteBtn.addEventListener('click', async () => {
+        confirmDeleteBtn.disabled = true;
+        cancelDeleteBtn.disabled = true;
+        confirmDeleteBtn.textContent = 'Deleting…';
+        deleteErrorSpan.classList.remove('visible');
+
+        try {
+          await deleteAlert(t, alert.id);
+          await clearLastSavedAlert();
+
+          // Replace card content with "Alert deleted" state
+          alertCard.innerHTML = '<div class="card-deleted-state">Alert deleted</div>';
+        } catch (err) {
+          console.error('Delete alert failed:', err);
+          deleteErrorSpan.textContent = err.message || 'Failed to delete alert. Please try again.';
+          deleteErrorSpan.classList.add('visible');
+          confirmBox.insertBefore(deleteErrorSpan, confirmActions);
+          confirmDeleteBtn.disabled = false;
+          cancelDeleteBtn.disabled = false;
+          confirmDeleteBtn.textContent = 'Delete';
+        }
+      });
+
+      confirmActions.appendChild(cancelDeleteBtn);
+      confirmActions.appendChild(confirmDeleteBtn);
+      confirmBox.appendChild(confirmActions);
+      cardActionsRow.appendChild(confirmBox);
     });
-
-    confirmActions.appendChild(cancelDeleteBtn);
-    confirmActions.appendChild(confirmDeleteBtn);
-    confirmBox.appendChild(confirmActions);
-    cardActionsRow.appendChild(confirmBox);
-  });
+  }
 
   pageWrapper.appendChild(alertCard);
 
@@ -412,7 +411,7 @@ async function initAlertCreatedPage() {
   `;
 
   goToMyAlertsBtn.addEventListener('click', () => {
-    goToMyAlerts();
+    goToMyAlerts(t);
   });
 
   bottomActions.appendChild(createAnotherBtn);

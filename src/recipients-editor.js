@@ -88,16 +88,19 @@ export function createRecipientsEditor({
   meRadio.className = 'recipient-radio';
   meRadio.checked = currentMode === 'me';
 
+  const isOtherCreator = !!(initialVal.creator && me && initialVal.creator.id !== me.id);
+  const creatorName = (initialVal.creator && initialVal.creator.name) || 'creator';
+
   const meContent = document.createElement('div');
   meContent.className = 'recipient-card-content';
 
   const meTitle = document.createElement('label');
   meTitle.className = 'recipient-title';
-  meTitle.textContent = 'Me only';
+  meTitle.textContent = isOtherCreator ? `Only ${creatorName}` : 'Me only';
 
   const meSub = document.createElement('span');
   meSub.className = 'recipient-subtitle';
-  meSub.textContent = 'Receive alerts at your email.';
+  meSub.textContent = isOtherCreator ? `Receive alerts at ${creatorName}'s email.` : 'Receive alerts at your email.';
 
   const meErrorContainer = document.createElement('div');
   meErrorContainer.className = 'recipient-inline-error';
@@ -388,9 +391,13 @@ export function createRecipientsEditor({
 
   return {
     getValue() {
+      const effectiveCreator = isOtherCreator
+        ? initialVal.creator
+        : (me ? { id: me.id, name: me.fullName || me.username || 'Creator' } : (initialVal.creator || null));
+
       return {
         mode: currentMode,
-        creator: me ? { id: me.id, name: me.fullName || me.username || 'Creator' } : null,
+        creator: effectiveCreator,
         members: currentMode === 'specific'
           ? Array.from(selectedMemberIds).map((id) => {
               const found = (members || []).find((m) => m.id === id);
@@ -413,7 +420,7 @@ export function createRecipientsEditor({
           specValidationError.classList.remove('visible');
         }
       } else if (currentMode === 'me') {
-        if (!me) {
+        if (!isOtherCreator && !me) {
           renderMeError();
           isValid = false;
         }

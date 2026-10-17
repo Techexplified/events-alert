@@ -81,7 +81,7 @@ function setupSidebarNav() {
       if (target === 'home') {
         openHome();
       } else if (target === 'my-alerts') {
-        goToMyAlerts();
+        goToMyAlerts(t);
       }
     });
   });

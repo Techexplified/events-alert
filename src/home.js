@@ -75,7 +75,7 @@ function setupSidebarNav() {
       } else if (target === 'my-alerts') {
         navButtons.forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
-        goToMyAlerts();
+        goToMyAlerts(t);
       } else if (target === 'home') {
         navButtons.forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
