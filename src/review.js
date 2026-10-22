@@ -12,16 +12,10 @@ import { renderAlertSummaryRows } from './alert-summary.js';
 import { goToMyAlerts } from './navigation.js';
 import { TRELLO_APP_KEY, TRELLO_APP_NAME, TRELLO_APP_AUTHOR } from './config.js';
 import { NotAuthorizedError, ApiError } from './api-client.js';
+import { getTrello } from './trello-instance.js';
 
 // Initialize the Trello Power-Up iframe connector safely
-const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
-const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe
-  ? window.TrelloPowerUp.iframe({
-      appKey: TRELLO_APP_KEY,
-      appName: TRELLO_APP_NAME,
-      appAuthor: TRELLO_APP_AUTHOR
-    })
-  : null;
+let t = getTrello();
 
 // Navigation helpers
 function openHome() {
@@ -761,12 +755,15 @@ async function initReviewPage() {
   createBtn.addEventListener('click', async () => {
     if (openEditorsCount > 0) return;
 
+    if (!t) t = getTrello();
+
     createErrorSpan.classList.remove('visible');
     createBtn.disabled = true;
 
     if (isEditMode) {
       createBtn.textContent = 'Saving…';
       try {
+        if (!t) t = getTrello();
         const updatedAlert = await updateAlert(t, draft.editingAlertId, {
           conditions: draft.conditions,
           recipients: draft.recipients
@@ -798,9 +795,18 @@ async function initReviewPage() {
     } else {
       createBtn.textContent = 'Creating…';
       try {
+        if (!t) t = getTrello();
+        let currentBoard = boardInfo;
+        if ((!currentBoard || !currentBoard.id || currentBoard.id === 'board-mock-1') && t) {
+          try {
+            const fresh = await fetchBoardInfo(t, { forceRefresh: true });
+            if (fresh && fresh.id) currentBoard = fresh;
+          } catch (e) {}
+        }
+
         const payload = {
-          boardId: boardInfo.id,
-          boardName: boardInfo.name,
+          boardId: currentBoard.id,
+          boardName: currentBoard.name,
           alertType: draft.conditions?.alertType || triggerType,
           conditions: draft.conditions,
           recipients: draft.recipients

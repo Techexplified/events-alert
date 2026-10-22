@@ -6,28 +6,32 @@ import { fetchRecipientData } from './board-data.js';
 import { frequencyOptions } from './frequency-options.js';
 import { createRecipientsEditor } from './recipients-editor.js';
 import { goToMyAlerts } from './navigation.js';
+import { getTrello } from './trello-instance.js';
 
 // Initialize the Trello Power-Up iframe connector safely
-const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
-const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe ? window.TrelloPowerUp.iframe() : null;
+let t = getTrello();
 
 // Navigation helpers
 function openHome() {
+  if (!t) t = getTrello();
   const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./home.html') : './home.html';
   window.location.href = targetUrl;
 }
 
 function openStep1() {
+  if (!t) t = getTrello();
   const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./create-alert.html') : './create-alert.html';
   window.location.href = targetUrl;
 }
 
 function openConditions() {
+  if (!t) t = getTrello();
   const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./conditions.html') : './conditions.html';
   window.location.href = targetUrl;
 }
 
 function openReview() {
+  if (!t) t = getTrello();
   const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./review.html') : './review.html';
   window.location.href = targetUrl;
 }

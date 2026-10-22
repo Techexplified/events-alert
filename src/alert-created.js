@@ -7,16 +7,10 @@ import { startEditingAlert } from './edit-alert.js';
 import { goToMyAlerts } from './navigation.js';
 import { TRELLO_APP_KEY, TRELLO_APP_NAME, TRELLO_APP_AUTHOR } from './config.js';
 import { fetchCurrentMember } from './board-data.js';
+import { getTrello } from './trello-instance.js';
 
 // Initialize the Trello Power-Up iframe connector safely
-const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
-const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe
-  ? window.TrelloPowerUp.iframe({
-      appKey: TRELLO_APP_KEY,
-      appName: TRELLO_APP_NAME,
-      appAuthor: TRELLO_APP_AUTHOR
-    })
-  : null;
+let t = getTrello();
 
 // Navigation helpers
 function openHome() {

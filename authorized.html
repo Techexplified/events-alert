@@ -8,15 +8,24 @@
   <body>
     <script>
       (function () {
-        const params = new URLSearchParams(window.location.search);
-        const code = params.get('code');
-        if (window.opener) {
-          window.opener.postMessage(
-            { type: 'TRELLO_AUTH_CODE', code: code },
-            window.location.origin
-          );
+        // Trello fragment authorization returns token in window.location.hash: #token=...
+        const hashMatch = window.location.hash.match(/token=([^&]+)/);
+        const searchParams = new URLSearchParams(window.location.search);
+        const token = (hashMatch && hashMatch[1]) || searchParams.get('token');
+
+        if (token) {
+          try {
+            localStorage.setItem('trello_token', token);
+          } catch (e) {}
+
+          if (window.opener) {
+            // Trello Power-Up client expects the token string directly
+            window.opener.postMessage(token, window.location.origin);
+          }
         }
-        window.close();
+        setTimeout(function () {
+          window.close();
+        }, 300);
       })();
     </script>
   </body>

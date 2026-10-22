@@ -6,15 +6,23 @@ export class ApiError extends Error {
   }
 }
 
+import { getTrello } from './trello-instance.js';
+
 export async function getToken(t, { interactive = false } = {}) {
-  if (!t || typeof t.getRestApi !== 'function') {
+  let trello = t || getTrello();
+
+  if (!trello || typeof trello.getRestApi !== 'function') {
     throw new Error('Trello Power-Up context is not available');
   }
-  const restApi = await t.getRestApi();
+
+  const restApi = await trello.getRestApi();
   if (!(await restApi.isAuthorized())) {
     if (!interactive) throw new NotAuthorizedError();
     // 'account' is requested now so the creator's email can be read later without a second consent prompt.
-    await restApi.authorize({ scope: 'read,account' });
+    const returnUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}/authorized.html`
+      : undefined;
+    await restApi.authorize({ scope: 'read,account', returnUrl });
   }
   return restApi.getToken();
 }

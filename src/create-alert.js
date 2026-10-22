@@ -1,21 +1,23 @@
 import { alertTypes, getIconSvg } from './alert-types.js';
 import { renderStepper } from './stepper.js';
 import { goToMyAlerts } from './navigation.js';
+import { getTrello } from './trello-instance.js';
 
 // Initialize the Trello Power-Up iframe connector safely
-const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
-const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe ? window.TrelloPowerUp.iframe() : null;
+let t = getTrello();
 
 let selectedTriggerId = null;
 
 // Reopen Home view
 function openHome() {
+  if (!t) t = getTrello();
   const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./home.html') : './home.html';
   window.location.href = targetUrl;
 }
 
 // Open Step 2 (Conditions)
 function openConditions() {
+  if (!t) t = getTrello();
   const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./conditions.html') : './conditions.html';
   window.location.href = targetUrl;
 }

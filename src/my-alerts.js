@@ -7,16 +7,10 @@ import { fetchCurrentMember } from './board-data.js';
 import { goToMyAlerts } from './navigation.js';
 import { TRELLO_APP_KEY, TRELLO_APP_NAME, TRELLO_APP_AUTHOR } from './config.js';
 import { NotAuthorizedError, ApiError, getToken } from './api-client.js';
+import { getTrello } from './trello-instance.js';
 
 // Initialize the Trello Power-Up iframe connector safely
-const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
-const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe
-  ? window.TrelloPowerUp.iframe({
-      appKey: TRELLO_APP_KEY,
-      appName: TRELLO_APP_NAME,
-      appAuthor: TRELLO_APP_AUTHOR
-    })
-  : null;
+let t = getTrello();
 
 // Navigation helpers
 function openHome() {
@@ -317,6 +311,7 @@ async function loadAndRenderAlerts() {
   renderLoadingSkeleton();
 
   try {
+    if (!t) t = getTrello();
     if (t && typeof t.board === 'function') {
       const b = await t.board('id');
       currentBoardId = b?.id || null;

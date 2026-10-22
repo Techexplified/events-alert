@@ -1,12 +1,13 @@
 /* global TrelloPowerUp */
 import { alertTypes, getIconSvg } from './alert-types.js';
 import { goToMyAlerts } from './navigation.js';
+import { getTrello } from './trello-instance.js';
 
 // Initialize the Trello Power-Up iframe connector safely
-const isInsideIframe = typeof window !== 'undefined' && window.self !== window.top;
-const t = typeof window.TrelloPowerUp !== 'undefined' && isInsideIframe ? window.TrelloPowerUp.iframe() : null;
+let t = getTrello();
 
 function openCreateAlert() {
+  if (!t) t = getTrello();
   const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./create-alert.html') : './create-alert.html';
   window.location.href = targetUrl;
 }
