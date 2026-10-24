@@ -22,7 +22,8 @@ export async function getToken(t, { interactive = false } = {}) {
     const returnUrl = typeof window !== 'undefined'
       ? `${window.location.origin}/authorized.html`
       : undefined;
-    await restApi.authorize({ scope: 'read,account', returnUrl });
+    // non-expiring because the scheduled checker uses this token
+    await restApi.authorize({ scope: 'read,account', expiration: 'never', returnUrl });
   }
   return restApi.getToken();
 }

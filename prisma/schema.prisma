@@ -26,6 +26,36 @@ model Alert {
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
+  lastCheckedAt     DateTime?
+  lastCheckStatus   String?   // ok | error | no_recipients
+  lastCheckMessage  String?
+  lastDigestSentAt  DateTime?
+  notifications     AlertNotification[]
+
   @@index([boardId, createdAt])
   @@index([boardId, status])
+}
+
+model AlertNotification {
+  id         String    @id @default(cuid())
+  alertId    String
+  alert      Alert     @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  cardId     String
+  cardName   String
+  cardUrl    String
+  stuckSince DateTime
+  detectedAt DateTime  @default(now())
+  sentAt     DateTime?
+
+  @@unique([alertId, cardId, stuckSince])
+  @@index([alertId, sentAt])
+}
+
+model TrelloCredential {
+  memberId  String    @id
+  fullName  String?
+  email     String?
+  tokenEnc  String
+  invalidAt DateTime?
+  updatedAt DateTime  @updatedAt
 }

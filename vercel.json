@@ -1,5 +1,16 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "framework": "vite"
+  "framework": "vite",
+  "crons": [
+    {
+      "path": "/api/cron/check-alerts",
+      "schedule": "0 9 * * *"
+    }
+  ],
+  "functions": {
+    "api/cron/check-alerts.js": {
+      "maxDuration": 60
+    }
+  }
 }

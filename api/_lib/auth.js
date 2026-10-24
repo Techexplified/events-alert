@@ -1,8 +1,61 @@
+import { prisma } from './db.js';
+import { encrypt, decrypt } from './crypto.js';
+
 export class AuthError extends Error {
   constructor(message = 'Unauthorized', status = 401) {
     super(message);
     this.name = 'AuthError';
     this.status = status;
+  }
+}
+
+/**
+ * Safely syncs the member's Trello credential to the database.
+ * Skips write if decrypted token and email are unchanged and updatedAt is < 24 hours old.
+ * Clears invalidAt on successful verification. Never fails the calling request.
+ */
+async function syncTrelloCredential({ memberId, fullName, email, token }) {
+  try {
+    const existing = await prisma.trelloCredential.findUnique({
+      where: { memberId }
+    });
+
+    if (existing) {
+      const isUnder24Hours = (Date.now() - new Date(existing.updatedAt).getTime()) < 24 * 60 * 60 * 1000;
+      const isInvalidCleared = existing.invalidAt === null;
+      let isTokenUnchanged = false;
+      try {
+        isTokenUnchanged = decrypt(existing.tokenEnc) === token;
+      } catch {
+        isTokenUnchanged = false;
+      }
+      const isEmailUnchanged = (existing.email || null) === (email || null);
+
+      if (isUnder24Hours && isInvalidCleared && isTokenUnchanged && isEmailUnchanged) {
+        return;
+      }
+    }
+
+    const tokenEnc = encrypt(token);
+    await prisma.trelloCredential.upsert({
+      where: { memberId },
+      update: {
+        fullName: fullName || null,
+        email: email || null,
+        tokenEnc,
+        invalidAt: null
+      },
+      create: {
+        memberId,
+        fullName: fullName || null,
+        email: email || null,
+        tokenEnc,
+        invalidAt: null
+      }
+    });
+  } catch (err) {
+    // Never fail request and never log tokens
+    console.error(`Failed to sync Trello credential for member ${memberId}:`, err.message || err);
   }
 }
 
@@ -36,7 +89,7 @@ export async function requireMember(req) {
     const url = new URL('https://api.trello.com/1/members/me');
     url.searchParams.set('key', appKey);
     url.searchParams.set('token', token);
-    url.searchParams.set('fields', 'id,fullName,username');
+    url.searchParams.set('fields', 'id,fullName,username,email');
 
     const res = await fetch(url.toString(), {
       method: 'GET',
@@ -48,10 +101,20 @@ export async function requireMember(req) {
     }
 
     const data = await res.json();
+
+    // After the token is verified, upsert the member's TrelloCredential
+    await syncTrelloCredential({
+      memberId: data.id,
+      fullName: data.fullName || null,
+      email: data.email || null,
+      token
+    });
+
     return {
       id: data.id,
       fullName: data.fullName || '',
       username: data.username || '',
+      email: data.email || '',
       token
     };
   } catch (err) {
