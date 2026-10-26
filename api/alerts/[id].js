@@ -56,7 +56,7 @@ export default async function handler(req, res) {
 
       const parseResult = updateAlertSchema.safeParse(req.body);
       if (!parseResult.success) {
-        const shortError = parseResult.error.errors[0]?.message || 'Invalid update payload';
+        const shortError = parseResult.error.issues?.[0]?.message || parseResult.error.errors?.[0]?.message || 'Invalid update payload';
         return res.status(400).json({ error: shortError });
       }
 
@@ -78,6 +78,19 @@ export default async function handler(req, res) {
       }
 
       if (recipients !== undefined) {
+        if (recipients.extraEmails && recipients.extraEmails.length > 0) {
+          const suppressed = await prisma.emailSuppression.findMany({
+            where: {
+              email: { in: recipients.extraEmails }
+            }
+          });
+          if (suppressed.length > 0) {
+            const suppressedSet = new Set(suppressed.map((s) => s.email.toLowerCase()));
+            const blockedEmail = recipients.extraEmails.find((e) => suppressedSet.has(e.toLowerCase()));
+            return res.status(400).json({ error: `${blockedEmail} has opted out of Event Alerts emails` });
+          }
+        }
+
         // Always keeps the stored recipients.creator, ignoring any creator in the request
         const existingRecipients = alert.recipients || {};
         const storedCreator = existingRecipients.creator || {

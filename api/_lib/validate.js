@@ -40,7 +40,12 @@ export const recipientsSchema = z.object({
   creator: z.object({
     id: z.string(),
     name: z.string().optional()
-  }).passthrough().optional()
+  }).passthrough().optional(),
+  extraEmails: z.array(z.string().trim().toLowerCase().email())
+    .optional()
+    .default([])
+    .transform((arr) => [...new Set(arr)])
+    .refine((arr) => arr.length <= 10, { message: 'recipients.extraEmails cannot exceed 10 entries' })
 });
 
 /**

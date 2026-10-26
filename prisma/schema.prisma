@@ -59,3 +59,8 @@ model TrelloCredential {
   invalidAt DateTime?
   updatedAt DateTime  @updatedAt
 }
+
+model EmailSuppression {
+  email     String   @id   // lowercased
+  createdAt DateTime @default(now())
+}

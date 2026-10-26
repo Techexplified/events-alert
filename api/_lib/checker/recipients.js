@@ -38,41 +38,64 @@ export async function resolveRecipients(alert, creatorToken) {
   }
 
   const uniqueMemberIds = [...new Set(memberIds)];
-  if (uniqueMemberIds.length === 0) {
-    return { emails: [], unreachable: 0 };
-  }
-
-  const credentials = await prisma.trelloCredential.findMany({
-    where: {
-      memberId: { in: uniqueMemberIds }
-    }
-  });
-
-  const credMap = new Map();
-  for (const c of credentials) {
-    credMap.set(c.memberId, c);
-  }
-
-  const validEmails = new Set();
+  const memberEmails = new Set();
   let unreachable = 0;
 
-  for (const memberId of uniqueMemberIds) {
-    const cred = credMap.get(memberId);
-    if (!cred || !cred.email || !cred.email.trim() || cred.invalidAt !== null) {
-      unreachable++;
-      continue;
+  if (uniqueMemberIds.length > 0) {
+    const credentials = await prisma.trelloCredential.findMany({
+      where: {
+        memberId: { in: uniqueMemberIds }
+      }
+    });
+
+    const credMap = new Map();
+    for (const c of credentials) {
+      credMap.set(c.memberId, c);
     }
 
-    const email = cred.email.trim().toLowerCase();
-    if (EMAIL_REGEX.test(email)) {
-      validEmails.add(email);
-    } else {
-      unreachable++;
+    for (const memberId of uniqueMemberIds) {
+      const cred = credMap.get(memberId);
+      if (!cred || !cred.email || !cred.email.trim() || cred.invalidAt !== null) {
+        unreachable++;
+        continue;
+      }
+
+      const email = cred.email.trim().toLowerCase();
+      if (EMAIL_REGEX.test(email)) {
+        memberEmails.add(email);
+      } else {
+        unreachable++;
+      }
     }
   }
 
+  // Extra emails from alert recipients configuration
+  const rawExtraEmails = Array.isArray(alert.recipients?.extraEmails) ? alert.recipients.extraEmails : [];
+  const validExtraEmails = rawExtraEmails
+    .map((e) => (typeof e === 'string' ? e.trim().toLowerCase() : ''))
+    .filter((e) => EMAIL_REGEX.test(e));
+
+  // Merge emails from Trello members and extraEmails, deduplicating across both
+  const candidateEmails = Array.from(new Set([...memberEmails, ...validExtraEmails]));
+
+  if (candidateEmails.length === 0) {
+    return {
+      emails: [],
+      unreachable
+    };
+  }
+
+  // Drop any address in EmailSuppression
+  const suppressed = await prisma.emailSuppression.findMany({
+    where: {
+      email: { in: candidateEmails }
+    }
+  });
+  const suppressedSet = new Set(suppressed.map((s) => s.email.toLowerCase()));
+  const finalEmails = candidateEmails.filter((email) => !suppressedSet.has(email));
+
   return {
-    emails: Array.from(validEmails),
+    emails: finalEmails,
     unreachable
   };
 }

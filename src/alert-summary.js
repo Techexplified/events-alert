@@ -205,6 +205,25 @@ export function renderNotifySummary(container, recipients, currentMember = null)
       container.appendChild(chipsList);
     }
   }
+
+  // Render extra addresses below the mode text as chips
+  const extraEmails = Array.isArray(rec.extraEmails) ? rec.extraEmails : [];
+  if (extraEmails.length > 0) {
+    const extraWrap = document.createElement('div');
+    extraWrap.className = 'notify-extra-emails';
+    const chipsList = document.createElement('div');
+    chipsList.className = 'filter-chips-list';
+    extraEmails.forEach((email) => {
+      const chip = document.createElement('span');
+      chip.className = 'review-chip';
+      const txt = document.createElement('span');
+      txt.textContent = email;
+      chip.appendChild(txt);
+      chipsList.appendChild(chip);
+    });
+    extraWrap.appendChild(chipsList);
+    container.appendChild(extraWrap);
+  }
 }
 
 /**

@@ -389,6 +389,225 @@ export function createRecipientsEditor({
   allRow.addEventListener('click', () => setMode('all'));
   allRadio.addEventListener('change', () => setMode('all'));
 
+  // Extra emails state (prefill from initialVal.extraEmails, trimmed, lowercased, deduplicated, max 10)
+  const extraEmails = [];
+  if (Array.isArray(initialVal.extraEmails)) {
+    initialVal.extraEmails.forEach((email) => {
+      if (typeof email === 'string') {
+        const cleaned = email.trim().toLowerCase();
+        if (cleaned && !extraEmails.includes(cleaned) && extraEmails.length < 10) {
+          extraEmails.push(cleaned);
+        }
+      }
+    });
+  }
+
+  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  // Additional email addresses (optional) Section
+  const extraEmailsSection = document.createElement('div');
+  extraEmailsSection.className = 'extra-emails-section';
+
+  const extraHeader = document.createElement('div');
+  extraHeader.className = 'extra-emails-header';
+
+  const extraLabel = document.createElement('label');
+  extraLabel.className = 'form-label extra-emails-label';
+  extraLabel.textContent = 'Additional email addresses (optional)';
+  extraLabel.htmlFor = 'extra-email-input';
+  extraHeader.appendChild(extraLabel);
+
+  const extraHelper = document.createElement('p');
+  extraHelper.className = 'extra-emails-helper';
+  extraHelper.textContent = 'These addresses will also receive this alert. They don’t need a Trello account.';
+  extraHeader.appendChild(extraHelper);
+
+  extraEmailsSection.appendChild(extraHeader);
+
+  const inputRow = document.createElement('div');
+  inputRow.className = 'extra-emails-input-row';
+
+  const emailInput = document.createElement('input');
+  emailInput.type = 'text';
+  emailInput.id = 'extra-email-input';
+  emailInput.className = 'form-input extra-emails-input';
+  emailInput.placeholder = 'name@example.com';
+  inputRow.appendChild(emailInput);
+
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'btn-add-email';
+  addBtn.textContent = 'Add';
+  inputRow.appendChild(addBtn);
+
+  extraEmailsSection.appendChild(inputRow);
+
+  const inlineError = document.createElement('div');
+  inlineError.className = 'error-message';
+  extraEmailsSection.appendChild(inlineError);
+
+  const chipsContainer = document.createElement('div');
+  chipsContainer.className = 'extra-emails-chips';
+  extraEmailsSection.appendChild(chipsContainer);
+
+  function showEmailError(msg) {
+    inlineError.textContent = msg;
+    inlineError.classList.add('visible');
+    emailInput.classList.add('has-error');
+  }
+
+  function clearEmailError() {
+    inlineError.textContent = '';
+    inlineError.classList.remove('visible');
+    emailInput.classList.remove('has-error');
+  }
+
+  function renderChips() {
+    chipsContainer.innerHTML = '';
+    if (extraEmails.length === 0) {
+      chipsContainer.style.display = 'none';
+      return;
+    }
+    chipsContainer.style.display = 'flex';
+
+    extraEmails.forEach((email) => {
+      const chip = document.createElement('span');
+      chip.className = 'extra-email-chip';
+
+      const textSpan = document.createElement('span');
+      textSpan.className = 'chip-email-text';
+      textSpan.textContent = email;
+      chip.appendChild(textSpan);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'chip-remove-btn';
+      removeBtn.setAttribute('aria-label', `Remove ${email}`);
+      removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const idx = extraEmails.indexOf(email);
+        if (idx !== -1) {
+          extraEmails.splice(idx, 1);
+          renderChips();
+          clearEmailError();
+        }
+      });
+      chip.appendChild(removeBtn);
+
+      chipsContainer.appendChild(chip);
+    });
+  }
+
+  function addSingleEmail(rawAddress) {
+    const address = (rawAddress || '').trim().toLowerCase();
+    if (!address) {
+      return { ok: false };
+    }
+
+    if (!EMAIL_REGEX.test(address)) {
+      return { ok: false, error: 'Enter a valid email address' };
+    }
+
+    if (extraEmails.includes(address)) {
+      return { ok: false, error: 'Already added' };
+    }
+
+    if (extraEmails.length >= 10) {
+      return { ok: false, error: 'You can add up to 10 addresses' };
+    }
+
+    extraEmails.push(address);
+    return { ok: true };
+  }
+
+  function processTokens(tokens) {
+    let lastError = null;
+    let addedCount = 0;
+
+    for (const token of tokens) {
+      const res = addSingleEmail(token);
+      if (res.ok) {
+        addedCount++;
+      } else if (res.error) {
+        lastError = res.error;
+        if (res.error === 'You can add up to 10 addresses') {
+          break;
+        }
+      }
+    }
+
+    renderChips();
+
+    if (lastError) {
+      showEmailError(lastError);
+    } else {
+      clearEmailError();
+    }
+
+    return { addedCount, lastError };
+  }
+
+  function commitInputText() {
+    const val = emailInput.value.trim();
+    if (!val) return;
+
+    const tokens = val.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+    if (tokens.length > 1) {
+      const { lastError } = processTokens(tokens);
+      if (!lastError) {
+        emailInput.value = '';
+      }
+    } else if (tokens.length === 1) {
+      const res = addSingleEmail(tokens[0]);
+      if (res.ok) {
+        renderChips();
+        clearEmailError();
+        emailInput.value = '';
+      } else {
+        showEmailError(res.error);
+      }
+    }
+  }
+
+  emailInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',' || e.key === ';' || e.key === 'Tab') {
+      const val = emailInput.value.trim();
+      if (e.key === 'Tab' && !val) {
+        return;
+      }
+      e.preventDefault();
+      commitInputText();
+    }
+  });
+
+  emailInput.addEventListener('input', () => {
+    clearEmailError();
+  });
+
+  emailInput.addEventListener('paste', (e) => {
+    const pastedText = (e.clipboardData || window.clipboardData)?.getData('text');
+    if (!pastedText) return;
+
+    const tokens = pastedText.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+    if (tokens.length > 0) {
+      e.preventDefault();
+      const { lastError } = processTokens(tokens);
+      if (!lastError) {
+        emailInput.value = '';
+      }
+    }
+  });
+
+  addBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    commitInputText();
+    emailInput.focus();
+  });
+
+  renderChips();
+  container.appendChild(extraEmailsSection);
+
   return {
     getValue() {
       const effectiveCreator = isOtherCreator
@@ -406,7 +625,8 @@ export function createRecipientsEditor({
                 name: found ? found.fullName || found.username || id : id
               };
             })
-          : []
+          : [],
+        extraEmails: [...extraEmails]
       };
     },
 
@@ -425,6 +645,14 @@ export function createRecipientsEditor({
           isValid = false;
         }
       }
+
+      // Check for un-added email text
+      if (emailInput.value.trim().length > 0) {
+        showEmailError('Press Add to include this address');
+        emailInput.focus();
+        isValid = false;
+      }
+
       return isValid;
     },
 

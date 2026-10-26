@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import crypto from 'node:crypto';
+import { unsubscribeUrl } from '../unsubscribe.js';
 
 /**
  * Escapes characters for safe inclusion in HTML.
@@ -26,12 +27,17 @@ export function computeRecipientIdempotencyKey(alertId, recipientEmail, notifica
 /**
  * Builds the inline-styled HTML and plain text bodies for stuck card notification.
  */
-export function buildEmailContent({ listName, boardName, days, cards }) {
+export function buildEmailContent({ listName, boardName, creatorName, days, cards, unsubscribeUrl: unsubUrl }) {
   const escapedListName = escapeHtml(listName);
   const escapedBoardName = escapeHtml(boardName);
+  const escapedCreatorName = escapeHtml(creatorName || 'Alert creator');
 
   const visibleCards = cards.slice(0, 20);
   const remaining = cards.length - visibleCards.length;
+
+  const unsubscribeHtml = unsubUrl
+    ? `<p style="margin: 0;"><a href="${escapeHtml(unsubUrl)}" style="color: #6b7280; text-decoration: underline;">Stop receiving these emails</a></p>`
+    : '';
 
   const html = `<!DOCTYPE html>
 <html>
@@ -64,7 +70,9 @@ export function buildEmailContent({ listName, boardName, days, cards }) {
     }
     <div style="border-top: 1px solid #e5e7eb; padding-top: 16px; font-size: 12px; color: #6b7280;">
       <p style="margin: 0 0 4px 0; font-weight: 600; color: #374151;">${escapedBoardName}</p>
-      <p style="margin: 0;">You’re receiving this because you’re a recipient of this alert. Manage it in the Event Alerts Power-Up on the board.</p>
+      <p style="margin: 0 0 8px 0;">${escapedCreatorName} set up this alert on the Trello board &quot;${escapedBoardName}&quot;.</p>
+      <p style="margin: 0 0 8px 0;">You’re receiving this because you’re a recipient of this alert. Manage it in the Event Alerts Power-Up on the board.</p>
+      ${unsubscribeHtml}
     </div>
   </div>
 </body>
@@ -84,12 +92,18 @@ export function buildEmailContent({ listName, boardName, days, cards }) {
     textLines.push(`+${remaining} more`);
   }
 
+  const effectiveCreatorName = creatorName || 'Alert creator';
   textLines.push(
     '',
     '---',
     boardName,
+    `${effectiveCreatorName} set up this alert on the Trello board "${boardName}".`,
     'You’re receiving this because you’re a recipient of this alert. Manage it in the Event Alerts Power-Up on the board.'
   );
+
+  if (unsubUrl) {
+    textLines.push('', `Stop receiving these emails: ${unsubUrl}`);
+  }
 
   const text = textLines.join('\n');
 
@@ -128,11 +142,20 @@ export async function sendStuckCardsAlertEmail({
 
   const days = alert.conditions?.days ?? 3;
   const boardName = alert.boardName || 'Trello Board';
+  const creatorName = alert.createdByName || alert.recipients?.creator?.name || 'Alert creator';
 
   const subject = `Stuck card alert: ${cards.length} card(s) in "${listName}" for more than ${days} days.`;
-  const { html, text } = buildEmailContent({ listName, boardName, days, cards });
 
   const emailPayloads = recipients.map((email) => {
+    const unsubUrl = unsubscribeUrl(email);
+    const { html, text } = buildEmailContent({
+      listName,
+      boardName,
+      creatorName,
+      days,
+      cards,
+      unsubscribeUrl: unsubUrl
+    });
     const idempotencyKey = computeRecipientIdempotencyKey(alert.id, email, notificationIds);
     return {
       from,
@@ -141,7 +164,9 @@ export async function sendStuckCardsAlertEmail({
       html,
       text,
       headers: {
-        'Idempotency-Key': idempotencyKey
+        'Idempotency-Key': idempotencyKey,
+        'List-Unsubscribe': `<${unsubUrl}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'
       }
     };
   });

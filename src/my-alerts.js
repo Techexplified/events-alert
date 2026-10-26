@@ -68,18 +68,27 @@ function setupCloseButton() {
 // When recipients.mode === 'me' and current member isn't recipients.creator.id, show "Only {creator name}"
 function formatRecipientSummary(recipients, currentMember) {
   if (!recipients) return 'Me only';
+  let base = 'Me only';
   if (recipients.mode === 'me') {
     if (recipients.creator && currentMember && recipients.creator.id !== currentMember.id) {
-      return `Only ${recipients.creator.name || 'creator'}`;
+      base = `Only ${recipients.creator.name || 'creator'}`;
+    } else {
+      base = 'Me only';
     }
-    return 'Me only';
-  }
-  if (recipients.mode === 'all') return 'All members';
-  if (recipients.mode === 'specific') {
+  } else if (recipients.mode === 'all') {
+    base = 'All members';
+  } else if (recipients.mode === 'specific') {
     const count = Array.isArray(recipients.members) ? recipients.members.length : 0;
-    return count === 1 ? '1 member' : `${count} members`;
+    base = count === 1 ? '1 member' : `${count} members`;
+  } else {
+    base = 'Me only';
   }
-  return 'Me only';
+
+  const extraCount = Array.isArray(recipients.extraEmails) ? recipients.extraEmails.length : 0;
+  if (extraCount > 0) {
+    return `${base} +${extraCount} ${extraCount === 1 ? 'email' : 'emails'}`;
+  }
+  return base;
 }
 
 // SVG Icons for metadata columns
@@ -724,6 +733,9 @@ function renderAlertCards() {
       const days = conditions.days != null ? conditions.days : 3;
       const daysCol = createMetaColumn(ICONS.calendar, 'Days', `${days} days`);
       metaRow.appendChild(daysCol);
+
+      const notifyCol = createMetaColumn(ICONS.notify, 'Notify', formatRecipientSummary(alert.recipients, currentMember));
+      metaRow.appendChild(notifyCol);
     } else if (alertType === 'no-activity') {
       const days = conditions.days != null ? conditions.days : 5;
       const noActCol = createMetaColumn(ICONS.calendar, 'No activity', `${days} days`);
