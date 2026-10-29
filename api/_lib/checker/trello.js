@@ -113,3 +113,25 @@ export async function trelloGet(path, params = {}, token) {
     }
   });
 }
+
+/**
+ * Verifies that a list exists, is not closed/archived, and belongs to the given board.
+ * Returns { ok: true, list, listName } or { ok: false, message, status }.
+ *
+ * @param {string} listId - Trello list ID
+ * @param {string} boardId - Expected Trello board ID
+ * @param {string} token - Member's Trello token
+ * @returns {Promise<{ ok: boolean, list?: object, listName?: string, message?: string, status?: number }>}
+ */
+export async function getListInfo(listId, boardId, token) {
+  const listRes = await trelloGet(`/1/lists/${listId}`, { fields: 'name,closed,idBoard' }, token);
+  if (listRes.status === 401) {
+    return { ok: false, status: 401, message: 'Creator needs to reconnect Trello' };
+  }
+
+  if (!listRes.ok || listRes.status === 404 || listRes.data?.closed || listRes.data?.idBoard !== boardId) {
+    return { ok: false, message: 'The list was archived or deleted' };
+  }
+
+  return { ok: true, list: listRes.data, listName: listRes.data?.name || 'List' };
+}

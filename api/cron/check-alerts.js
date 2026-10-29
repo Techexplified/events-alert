@@ -1,14 +1,22 @@
 import { prisma } from '../_lib/db.js';
 import { decrypt } from '../_lib/crypto.js';
-import { findStuckCards } from '../_lib/checker/stuck-in-list.js';
+import * as stuckInList from '../_lib/checker/stuck-in-list.js';
+import * as overdueInList from '../_lib/checker/overdue-in-list.js';
 import { resolveRecipients } from '../_lib/checker/recipients.js';
-import { sendStuckCardsAlertEmail } from '../_lib/checker/email.js';
+import { sendAlertEmail } from '../_lib/checker/email.js';
+
+// Registry for extensible checker support
+const checkers = {
+  'stuck-in-list': stuckInList,
+  'overdue-in-list': overdueInList
+};
 
 /**
- * Checks a single 'stuck-in-list' alert.
+ * Checks a single alert regardless of its type.
  */
-async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = undefined } = {}) {
-  const skipDatabaseWrites = dryRun || daysOverride !== undefined;
+async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = {}) {
+  const isStuckTest = alert.alertType === 'stuck-in-list' && daysOverride !== undefined;
+  const skipDatabaseWrites = dryRun || isStuckTest;
   const creatorMemberId = alert.createdByMemberId || alert.recipients?.creator?.id;
 
   // 1. Load creator credential
@@ -29,10 +37,11 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
     }
     return {
       alertId: alert.id,
+      alertType: alert.alertType,
       status: 'error',
       cardsChecked: 0,
-      stuckCount: 0,
-      newlyStuck: 0,
+      itemCount: 0,
+      newlyDetected: 0,
       emailsSent: 0,
       unreachable: 0,
       message: 'Creator needs to reconnect Trello'
@@ -65,20 +74,39 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
     }
     return {
       alertId: alert.id,
+      alertType: alert.alertType,
       status: 'error',
       cardsChecked: 0,
-      stuckCount: 0,
-      newlyStuck: 0,
+      itemCount: 0,
+      newlyDetected: 0,
       emailsSent: 0,
       unreachable: 0,
       message: 'Creator needs to reconnect Trello'
     };
   }
 
-  // 2. Find stuck cards
-  const stuckResult = await findStuckCards(alert, creatorToken, { daysOverride, dryRun });
+  // 2. Run the checker
+  const checker = checkers[alert.alertType];
+  if (!checker || typeof checker.check !== 'function') {
+    return {
+      alertId: alert.id,
+      alertType: alert.alertType,
+      status: 'error',
+      cardsChecked: 0,
+      itemCount: 0,
+      newlyDetected: 0,
+      emailsSent: 0,
+      unreachable: 0,
+      message: `Unknown alert type: ${alert.alertType}`
+    };
+  }
 
-  if (stuckResult.status === 401) {
+  const checkResult = await checker.check(alert, creatorToken, {
+    daysOverride: alert.alertType === 'stuck-in-list' ? daysOverride : undefined,
+    dryRun
+  });
+
+  if (checkResult.status === 401) {
     if (!skipDatabaseWrites) {
       await prisma.trelloCredential.update({
         where: { memberId: cred.memberId },
@@ -95,64 +123,67 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
     }
     return {
       alertId: alert.id,
+      alertType: alert.alertType,
       status: 'error',
       cardsChecked: 0,
-      stuckCount: 0,
-      newlyStuck: 0,
+      itemCount: 0,
+      newlyDetected: 0,
       emailsSent: 0,
       unreachable: 0,
       message: 'Creator needs to reconnect Trello'
     };
   }
 
-  if (!stuckResult.ok) {
+  if (!checkResult.ok) {
+    const errorMsg = checkResult.message || checkResult.error || 'Check failed';
     if (!skipDatabaseWrites) {
       await prisma.alert.update({
         where: { id: alert.id },
         data: {
           lastCheckedAt: new Date(),
           lastCheckStatus: 'error',
-          lastCheckMessage: stuckResult.error
+          lastCheckMessage: errorMsg
         }
       });
     }
     return {
       alertId: alert.id,
+      alertType: alert.alertType,
       status: 'error',
-      cardsChecked: stuckResult.cardsChecked || 0,
-      stuckCount: 0,
-      newlyStuck: 0,
+      cardsChecked: checkResult.cardsChecked || 0,
+      itemCount: 0,
+      newlyDetected: 0,
       emailsSent: 0,
       unreachable: 0,
-      message: stuckResult.error
+      message: errorMsg
     };
   }
 
-  const stuckCards = stuckResult.stuckCards || [];
-  const cardsChecked = stuckResult.cardsChecked || 0;
+  const items = checkResult.items || [];
+  const cardsChecked = checkResult.cardsChecked || 0;
 
-  let newlyStuck = 0;
+  let newlyDetected = 0;
   let unsentRows = [];
 
   if (!skipDatabaseWrites) {
-    // Delete unsent rows for cards that are no longer stuck
-    const currentStuckCardIds = stuckCards.map((c) => c.cardId);
+    // Delete unsent rows for cards that no longer match
+    const currentCardIds = items.map((c) => c.cardId);
     await prisma.alertNotification.deleteMany({
       where: {
         alertId: alert.id,
         sentAt: null,
-        cardId: { notIn: currentStuckCardIds }
+        cardId: { notIn: currentCardIds }
       }
     });
 
-    // Create AlertNotification rows for stuck cards, skipping any existing for same (alertId, cardId, stuckSince)
-    for (const card of stuckCards) {
+    // Create AlertNotification rows for matching cards, skipping any existing for same (alertId, cardId, episodeAt)
+    for (const item of items) {
       const existing = await prisma.alertNotification.findUnique({
         where: {
-          alertId_cardId_stuckSince: {
+          alertId_cardId_episodeAt: {
             alertId: alert.id,
-            cardId: card.cardId,
-            stuckSince: card.stuckSince
+            cardId: item.cardId,
+            episodeAt: item.episodeAt
           }
         }
       });
@@ -161,13 +192,13 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
         await prisma.alertNotification.create({
           data: {
             alertId: alert.id,
-            cardId: card.cardId,
-            cardName: card.name,
-            cardUrl: card.url,
-            stuckSince: card.stuckSince
+            cardId: item.cardId,
+            cardName: item.name,
+            cardUrl: item.url,
+            episodeAt: item.episodeAt
           }
         });
-        newlyStuck++;
+        newlyDetected++;
       }
     }
 
@@ -176,22 +207,22 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
         alertId: alert.id,
         sentAt: null
       },
-      orderBy: { stuckSince: 'asc' }
+      orderBy: { episodeAt: 'asc' }
     });
   } else {
-    // In dryRun or daysOverride, compute newlyStuck without writing to database
-    for (const card of stuckCards) {
+    // In dryRun or isStuckTest, compute newlyDetected without writing to database
+    for (const item of items) {
       const existing = await prisma.alertNotification.findUnique({
         where: {
-          alertId_cardId_stuckSince: {
+          alertId_cardId_episodeAt: {
             alertId: alert.id,
-            cardId: card.cardId,
-            stuckSince: card.stuckSince
+            cardId: item.cardId,
+            episodeAt: item.episodeAt
           }
         }
       });
       if (!existing) {
-        newlyStuck++;
+        newlyDetected++;
       }
     }
   }
@@ -199,18 +230,19 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
   // 3. Work out whether to send
   let shouldSend = false;
 
-  if (daysOverride !== undefined) {
-    // In daysOverride test mode, send immediately if there are stuck cards
-    if (stuckCards.length === 0) {
+  if (isStuckTest) {
+    // In daysOverride test mode for stuck-in-list, send immediately if there are matching cards
+    if (items.length === 0) {
       return {
         alertId: alert.id,
+        alertType: alert.alertType,
         status: 'ok',
         cardsChecked,
-        stuckCount: 0,
-        newlyStuck: 0,
+        itemCount: 0,
+        newlyDetected: 0,
         emailsSent: 0,
         unreachable: 0,
-        message: 'No stuck cards'
+        message: 'No matching cards'
       };
     }
     shouldSend = true;
@@ -228,10 +260,11 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
       }
       return {
         alertId: alert.id,
+        alertType: alert.alertType,
         status: 'ok',
         cardsChecked,
-        stuckCount: stuckCards.length,
-        newlyStuck: 0,
+        itemCount: items.length,
+        newlyDetected: 0,
         emailsSent: 0,
         unreachable: 0,
         message: null
@@ -240,16 +273,16 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
 
     const frequency = alert.recipients?.frequency || 'immediate';
     if (frequency === 'immediate') {
-      shouldSend = unsentRows.length > 0 || (dryRun && stuckCards.length > 0);
+      shouldSend = unsentRows.length > 0 || (dryRun && items.length > 0);
     } else if (frequency === 'daily') {
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       if (!alert.lastDigestSentAt || new Date(alert.lastDigestSentAt) < oneDayAgo) {
-        shouldSend = unsentRows.length > 0 || (dryRun && stuckCards.length > 0);
+        shouldSend = unsentRows.length > 0 || (dryRun && items.length > 0);
       }
     } else if (frequency === 'weekly') {
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       if (!alert.lastDigestSentAt || new Date(alert.lastDigestSentAt) < sevenDaysAgo) {
-        shouldSend = unsentRows.length > 0 || (dryRun && stuckCards.length > 0);
+        shouldSend = unsentRows.length > 0 || (dryRun && items.length > 0);
       }
     }
 
@@ -266,10 +299,11 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
       }
       return {
         alertId: alert.id,
+        alertType: alert.alertType,
         status: 'ok',
         cardsChecked,
-        stuckCount: stuckCards.length,
-        newlyStuck,
+        itemCount: items.length,
+        newlyDetected,
         emailsSent: 0,
         unreachable: 0,
         message: null
@@ -294,10 +328,11 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
     }
     return {
       alertId: alert.id,
+      alertType: alert.alertType,
       status: 'no_recipients',
       cardsChecked,
-      stuckCount: stuckCards.length,
-      newlyStuck,
+      itemCount: items.length,
+      newlyDetected,
       emailsSent: 0,
       unreachable,
       message
@@ -308,10 +343,11 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
   if (dryRun) {
     return {
       alertId: alert.id,
+      alertType: alert.alertType,
       status: 'ok',
       cardsChecked,
-      stuckCount: stuckCards.length,
-      newlyStuck,
+      itemCount: items.length,
+      newlyDetected,
       emailsSent: 0,
       unreachable,
       message: `[dry-run] Would send alert to ${emails.length} recipient(s)`
@@ -321,23 +357,23 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
   let cardsToSend = [];
   let notificationIds = [];
 
-  if (daysOverride !== undefined) {
-    cardsToSend = stuckCards;
-    notificationIds = stuckCards.map((c) => c.cardId);
+  if (isStuckTest) {
+    cardsToSend = items;
+    notificationIds = items.map((c) => c.cardId);
   } else {
     notificationIds = unsentRows.map((r) => r.id);
     cardsToSend = unsentRows.map((r) => ({
       cardId: r.cardId,
       name: r.cardName,
       url: r.cardUrl,
-      stuckSince: r.stuckSince,
-      daysInList: Math.max(0, Math.floor((Date.now() - new Date(r.stuckSince).getTime()) / (24 * 60 * 60 * 1000)))
+      episodeAt: r.episodeAt,
+      daysInList: Math.max(0, Math.floor((Date.now() - new Date(r.episodeAt).getTime()) / (24 * 60 * 60 * 1000)))
     }));
   }
 
-  const sendResult = await sendStuckCardsAlertEmail({
+  const sendResult = await sendAlertEmail({
     alert,
-    listName: stuckResult.listName,
+    listName: checkResult.listName,
     cards: cardsToSend,
     recipients: emails,
     notificationIds
@@ -356,10 +392,11 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
     }
     return {
       alertId: alert.id,
+      alertType: alert.alertType,
       status: 'error',
       cardsChecked,
-      stuckCount: stuckCards.length,
-      newlyStuck,
+      itemCount: items.length,
+      newlyDetected,
       emailsSent: 0,
       unreachable,
       message: sendResult.error
@@ -386,20 +423,16 @@ async function checkStuckInListAlert(alert, { dryRun = false, daysOverride = und
 
   return {
     alertId: alert.id,
+    alertType: alert.alertType,
     status: 'ok',
     cardsChecked,
-    stuckCount: stuckCards.length,
-    newlyStuck,
+    itemCount: items.length,
+    newlyDetected,
     emailsSent: sendResult.sentCount || emails.length,
     unreachable,
     message: null
   };
 }
-
-// Registry for extensible checker support
-const checkers = {
-  'stuck-in-list': checkStuckInListAlert
-};
 
 /**
  * Scheduled check-alerts endpoint.
@@ -429,9 +462,10 @@ export default async function handler(req, res) {
     : undefined;
 
   try {
+    const supportedTypes = Object.keys(checkers);
     const where = {
       status: 'active',
-      alertType: 'stuck-in-list'
+      alertType: { in: supportedTypes }
     };
 
     if (alertIdFilter) {
@@ -453,16 +487,17 @@ export default async function handler(req, res) {
       }
 
       try {
-        const result = await checker(alert, { dryRun, daysOverride });
+        const result = await checkAlert(alert, { dryRun, daysOverride });
         results.push(result);
       } catch (err) {
         console.error(`Error checking alert ${alert.id}:`, err.message || err);
         results.push({
           alertId: alert.id,
+          alertType: alert.alertType,
           status: 'error',
           cardsChecked: 0,
-          stuckCount: 0,
-          newlyStuck: 0,
+          itemCount: 0,
+          newlyDetected: 0,
           emailsSent: 0,
           unreachable: 0,
           message: err.message || 'Internal check error'

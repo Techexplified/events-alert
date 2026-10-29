@@ -24,16 +24,126 @@ export function computeRecipientIdempotencyKey(alertId, recipientEmail, notifica
   return crypto.createHash('sha256').update(input).digest('hex');
 }
 
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function formatUtcDate(date) {
+  const d = new Date(date);
+  const mon = MONTH_NAMES[d.getUTCMonth()];
+  const day = d.getUTCDate();
+  const year = d.getUTCFullYear();
+  return `${mon} ${day}, ${year} UTC`;
+}
+
+function getOverdueText(episodeAt) {
+  const dueTime = new Date(episodeAt).getTime();
+  const diffDays = Math.max(0, Math.floor((Date.now() - dueTime) / (24 * 60 * 60 * 1000)));
+  if (diffDays === 0) {
+    return 'less than a day overdue';
+  }
+  return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} overdue`;
+}
+
+export const templates = {
+  'stuck-in-list': {
+    heading: 'Stuck Card Alert',
+    subject: ({ alert, listName, cards }) => {
+      const days = alert?.conditions?.days ?? 3;
+      return `Stuck card alert: ${cards.length} card(s) in "${listName}" for more than ${days} days.`;
+    },
+    intro: {
+      html: ({ listName, days }) => {
+        const escapedListName = escapeHtml(listName);
+        return `The following card(s) have been in <strong>${escapedListName}</strong> for more than ${days} days:`;
+      },
+      text: ({ listName, days }) => {
+        return `The following card(s) have been in "${listName}" for more than ${days} days:`;
+      }
+    },
+    line: {
+      html: (c) => {
+        const daysInList =
+          c.daysInList != null
+            ? c.daysInList
+            : Math.max(
+                0,
+                Math.floor((Date.now() - new Date(c.episodeAt || c.stuckSince).getTime()) / (24 * 60 * 60 * 1000))
+              );
+        return `<a href="${escapeHtml(c.url)}" style="color: #0284c7; text-decoration: none; font-weight: 500;" target="_blank" rel="noopener noreferrer">${escapeHtml(c.name)}</a>\n          <span style="color: #6b7280;"> &mdash; in this list for ${daysInList} ${daysInList === 1 ? 'day' : 'days'}</span>`;
+      },
+      text: (c) => {
+        const daysInList =
+          c.daysInList != null
+            ? c.daysInList
+            : Math.max(
+                0,
+                Math.floor((Date.now() - new Date(c.episodeAt || c.stuckSince).getTime()) / (24 * 60 * 60 * 1000))
+              );
+        return `- ${c.name} (${c.url}) - in this list for ${daysInList} ${daysInList === 1 ? 'day' : 'days'}`;
+      }
+    }
+  },
+  'overdue-in-list': {
+    heading: 'Overdue Card Alert',
+    subject: ({ listName, cards }) => {
+      return `Overdue card alert: ${cards.length} overdue card(s) in "${listName}".`;
+    },
+    intro: {
+      html: ({ listName, boardName }) => {
+        const escapedListName = escapeHtml(listName);
+        const escapedBoardName = escapeHtml(boardName);
+        return `These cards are past their due date and still in the list &quot;${escapedListName}&quot; on the board &quot;${escapedBoardName}&quot;.`;
+      },
+      text: ({ listName, boardName }) => {
+        return `These cards are past their due date and still in the list "${listName}" on the board "${boardName}".`;
+      }
+    },
+    line: {
+      html: (c) => {
+        const episodeAt = c.episodeAt || c.due;
+        const dateStr = formatUtcDate(episodeAt);
+        const overdueStr = getOverdueText(episodeAt);
+        return `<a href="${escapeHtml(c.url)}" style="color: #0284c7; text-decoration: none; font-weight: 500;" target="_blank" rel="noopener noreferrer">${escapeHtml(c.name)}</a>\n          <span style="color: #6b7280;"> &mdash; due ${dateStr}, ${overdueStr}</span>`;
+      },
+      text: (c) => {
+        const episodeAt = c.episodeAt || c.due;
+        const dateStr = formatUtcDate(episodeAt);
+        const overdueStr = getOverdueText(episodeAt);
+        return `- ${c.name} (${c.url}) - due ${dateStr}, ${overdueStr}`;
+      }
+    }
+  }
+};
+
 /**
- * Builds the inline-styled HTML and plain text bodies for stuck card notification.
+ * Builds the inline-styled HTML and plain text bodies for an alert notification.
  */
-export function buildEmailContent({ listName, boardName, creatorName, days, cards, unsubscribeUrl: unsubUrl }) {
-  const escapedListName = escapeHtml(listName);
+export function buildEmailContent({
+  alert,
+  alertType,
+  listName,
+  boardName,
+  creatorName,
+  days,
+  cards,
+  unsubscribeUrl: unsubUrl
+}) {
+  const typeKey = alertType || alert?.alertType || 'stuck-in-list';
+  const template = templates[typeKey] || templates['stuck-in-list'];
+
   const escapedBoardName = escapeHtml(boardName);
   const escapedCreatorName = escapeHtml(creatorName || 'Alert creator');
 
-  const visibleCards = cards.slice(0, 20);
-  const remaining = cards.length - visibleCards.length;
+  // Sort: most overdue first / longest stuck first (earliest episodeAt first)
+  const sortedCards = [...cards].sort((a, b) => {
+    const timeA = new Date(a.episodeAt || a.stuckSince).getTime();
+    const timeB = new Date(b.episodeAt || b.stuckSince).getTime();
+    return timeA - timeB;
+  });
+
+  const visibleCards = sortedCards.slice(0, 20);
+  const remaining = sortedCards.length - visibleCards.length;
+
+  const effectiveDays = days ?? alert?.conditions?.days ?? 3;
 
   const unsubscribeHtml = unsubUrl
     ? `<p style="margin: 0;"><a href="${escapeHtml(unsubUrl)}" style="color: #6b7280; text-decoration: underline;">Stop receiving these emails</a></p>`
@@ -47,17 +157,16 @@ export function buildEmailContent({ listName, boardName, creatorName, days, card
 </head>
 <body style="margin: 0; padding: 24px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937; background-color: #f9fafb; line-height: 1.5;">
   <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-    <h2 style="margin-top: 0; margin-bottom: 12px; font-size: 18px; color: #111827;">Stuck Card Alert</h2>
+    <h2 style="margin-top: 0; margin-bottom: 12px; font-size: 18px; color: #111827;">${template.heading}</h2>
     <p style="margin-top: 0; margin-bottom: 16px; font-size: 14px; color: #4b5563;">
-      The following card(s) have been in <strong>${escapedListName}</strong> for more than ${days} days:
+      ${template.intro.html({ alert, listName, boardName, days: effectiveDays })}
     </p>
     <ul style="margin: 0 0 20px 0; padding-left: 20px; font-size: 14px;">
       ${visibleCards
         .map(
           (c) => `
         <li style="margin-bottom: 8px;">
-          <a href="${escapeHtml(c.url)}" style="color: #0284c7; text-decoration: none; font-weight: 500;" target="_blank" rel="noopener noreferrer">${escapeHtml(c.name)}</a>
-          <span style="color: #6b7280;"> &mdash; in this list for ${c.daysInList} ${c.daysInList === 1 ? 'day' : 'days'}</span>
+          ${template.line.html(c)}
         </li>
       `
         )
@@ -79,13 +188,11 @@ export function buildEmailContent({ listName, boardName, creatorName, days, card
 </html>`;
 
   const textLines = [
-    'Stuck Card Alert',
+    template.heading,
     '',
-    `The following card(s) have been in "${listName}" for more than ${days} days:`,
+    template.intro.text({ alert, listName, boardName, days: effectiveDays }),
     '',
-    ...visibleCards.map(
-      (c) => `- ${c.name} (${c.url}) - in this list for ${c.daysInList} ${c.daysInList === 1 ? 'day' : 'days'}`
-    )
+    ...visibleCards.map((c) => template.line.text(c))
   ];
 
   if (remaining > 0) {
@@ -111,17 +218,17 @@ export function buildEmailContent({ listName, boardName, creatorName, days, card
 }
 
 /**
- * Sends stuck card alert emails to recipients via Resend batch endpoint.
+ * Sends alert emails to recipients via Resend batch endpoint.
  *
  * @param {object} params
  * @param {object} params.alert - Alert database record
  * @param {string} params.listName - Name of the list
- * @param {Array} params.cards - Stuck cards array [{ cardId, name, url, stuckSince, daysInList }]
+ * @param {Array} params.cards - Cards array [{ cardId, name, url, episodeAt }]
  * @param {Array<string>} params.recipients - Email addresses of recipients
  * @param {Array<string>} params.notificationIds - AlertNotification row IDs
  * @returns {Promise<{ ok: boolean, sentCount?: number, error?: string }>}
  */
-export async function sendStuckCardsAlertEmail({
+export async function sendAlertEmail({
   alert,
   listName,
   cards,
@@ -140,15 +247,20 @@ export async function sendStuckCardsAlertEmail({
   const from = process.env.EMAIL_FROM || 'Event Alerts <onboarding@resend.dev>';
   const resend = new Resend(apiKey);
 
+  const typeKey = alert.alertType || 'stuck-in-list';
+  const template = templates[typeKey] || templates['stuck-in-list'];
+
   const days = alert.conditions?.days ?? 3;
   const boardName = alert.boardName || 'Trello Board';
   const creatorName = alert.createdByName || alert.recipients?.creator?.name || 'Alert creator';
 
-  const subject = `Stuck card alert: ${cards.length} card(s) in "${listName}" for more than ${days} days.`;
+  const subject = template.subject({ alert, listName, boardName, cards });
 
   const emailPayloads = recipients.map((email) => {
     const unsubUrl = unsubscribeUrl(email);
     const { html, text } = buildEmailContent({
+      alert,
+      alertType: typeKey,
       listName,
       boardName,
       creatorName,
@@ -196,3 +308,5 @@ export async function sendStuckCardsAlertEmail({
 
   return { ok: true, sentCount: totalSent };
 }
+
+export const sendStuckCardsAlertEmail = sendAlertEmail;

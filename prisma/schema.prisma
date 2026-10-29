@@ -43,11 +43,11 @@ model AlertNotification {
   cardId     String
   cardName   String
   cardUrl    String
-  stuckSince DateTime
+  episodeAt  DateTime  @map("stuckSince")   // when this condition's clock started for the card
   detectedAt DateTime  @default(now())
   sentAt     DateTime?
 
-  @@unique([alertId, cardId, stuckSince])
+  @@unique([alertId, cardId, episodeAt])
   @@index([alertId, sentAt])
 }
 
