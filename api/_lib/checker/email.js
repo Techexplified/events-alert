@@ -111,6 +111,40 @@ export const templates = {
         return `- ${c.name} (${c.url}) - due ${dateStr}, ${overdueStr}`;
       }
     }
+  },
+  'no-activity': {
+    heading: 'No Activity Alert',
+    subject: ({ alert, cards }) => {
+      const days = alert?.conditions?.days ?? 5;
+      return `No activity alert: ${cards.length} card(s) with no updates for more than ${days} days.`;
+    },
+    intro: {
+      html: ({ alert, boardName, days }) => {
+        const escapedBoardName = escapeHtml(boardName);
+        const savedDays = alert?.conditions?.days ?? days ?? 5;
+        return `These cards on the board &quot;${escapedBoardName}&quot; haven&#39;t had any activity for more than ${savedDays} days.`;
+      },
+      text: ({ alert, boardName, days }) => {
+        const savedDays = alert?.conditions?.days ?? days ?? 5;
+        return `These cards on the board "${boardName}" haven't had any activity for more than ${savedDays} days.`;
+      }
+    },
+    line: {
+      html: (c) => {
+        const episodeAt = c.episodeAt || c.dateLastActivity;
+        const dateStr = formatUtcDate(episodeAt);
+        const diffDays = Math.max(0, Math.floor((Date.now() - new Date(episodeAt).getTime()) / (24 * 60 * 60 * 1000)));
+        const daysAgoStr = `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
+        return `<a href="${escapeHtml(c.url)}" style="color: #0284c7; text-decoration: none; font-weight: 500;" target="_blank" rel="noopener noreferrer">${escapeHtml(c.name)}</a>\n          <span style="color: #6b7280;"> &mdash; last activity ${dateStr} (${daysAgoStr})</span>`;
+      },
+      text: (c) => {
+        const episodeAt = c.episodeAt || c.dateLastActivity;
+        const dateStr = formatUtcDate(episodeAt);
+        const diffDays = Math.max(0, Math.floor((Date.now() - new Date(episodeAt).getTime()) / (24 * 60 * 60 * 1000)));
+        const daysAgoStr = `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
+        return `- ${c.name} (${c.url}) - last activity ${dateStr} (${daysAgoStr})`;
+      }
+    }
   }
 };
 
@@ -230,6 +264,7 @@ export function buildEmailContent({
  */
 export async function sendAlertEmail({
   alert,
+  boardName: boardNameParam,
   listName,
   cards,
   recipients,
@@ -251,7 +286,7 @@ export async function sendAlertEmail({
   const template = templates[typeKey] || templates['stuck-in-list'];
 
   const days = alert.conditions?.days ?? 3;
-  const boardName = alert.boardName || 'Trello Board';
+  const boardName = boardNameParam || alert.boardName || 'Trello Board';
   const creatorName = alert.createdByName || alert.recipients?.creator?.name || 'Alert creator';
 
   const subject = template.subject({ alert, listName, boardName, cards });

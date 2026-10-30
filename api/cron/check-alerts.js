@@ -2,21 +2,23 @@ import { prisma } from '../_lib/db.js';
 import { decrypt } from '../_lib/crypto.js';
 import * as stuckInList from '../_lib/checker/stuck-in-list.js';
 import * as overdueInList from '../_lib/checker/overdue-in-list.js';
+import * as noActivity from '../_lib/checker/no-activity.js';
 import { resolveRecipients } from '../_lib/checker/recipients.js';
 import { sendAlertEmail } from '../_lib/checker/email.js';
 
 // Registry for extensible checker support
 const checkers = {
   'stuck-in-list': stuckInList,
-  'overdue-in-list': overdueInList
+  'overdue-in-list': overdueInList,
+  'no-activity': noActivity
 };
 
 /**
  * Checks a single alert regardless of its type.
  */
 async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = {}) {
-  const isStuckTest = alert.alertType === 'stuck-in-list' && daysOverride !== undefined;
-  const skipDatabaseWrites = dryRun || isStuckTest;
+  const isDaysOverrideTest = (alert.alertType === 'stuck-in-list' || alert.alertType === 'no-activity') && daysOverride !== undefined;
+  const skipDatabaseWrites = dryRun || isDaysOverrideTest;
   const creatorMemberId = alert.createdByMemberId || alert.recipients?.creator?.id;
 
   // 1. Load creator credential
@@ -102,7 +104,7 @@ async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = 
   }
 
   const checkResult = await checker.check(alert, creatorToken, {
-    daysOverride: alert.alertType === 'stuck-in-list' ? daysOverride : undefined,
+    daysOverride: (alert.alertType === 'stuck-in-list' || alert.alertType === 'no-activity') ? daysOverride : undefined,
     dryRun
   });
 
@@ -230,8 +232,8 @@ async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = 
   // 3. Work out whether to send
   let shouldSend = false;
 
-  if (isStuckTest) {
-    // In daysOverride test mode for stuck-in-list, send immediately if there are matching cards
+  if (isDaysOverrideTest) {
+    // In daysOverride test mode for stuck-in-list and no-activity, send immediately if there are matching cards
     if (items.length === 0) {
       return {
         alertId: alert.id,
@@ -267,7 +269,7 @@ async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = 
         newlyDetected: 0,
         emailsSent: 0,
         unreachable: 0,
-        message: null
+        message: checkResult.message || null
       };
     }
 
@@ -306,7 +308,7 @@ async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = 
         newlyDetected,
         emailsSent: 0,
         unreachable: 0,
-        message: null
+        message: checkResult.message || null
       };
     }
   }
@@ -341,6 +343,7 @@ async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = 
 
   // 5. Send emails
   if (dryRun) {
+    const dryRunMsg = `[dry-run] Would send alert to ${emails.length} recipient(s)`;
     return {
       alertId: alert.id,
       alertType: alert.alertType,
@@ -350,14 +353,14 @@ async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = 
       newlyDetected,
       emailsSent: 0,
       unreachable,
-      message: `[dry-run] Would send alert to ${emails.length} recipient(s)`
+      message: checkResult.message ? `${checkResult.message}; ${dryRunMsg}` : dryRunMsg
     };
   }
 
   let cardsToSend = [];
   let notificationIds = [];
 
-  if (isStuckTest) {
+  if (isDaysOverrideTest) {
     cardsToSend = items;
     notificationIds = items.map((c) => c.cardId);
   } else {
@@ -373,6 +376,7 @@ async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = 
 
   const sendResult = await sendAlertEmail({
     alert,
+    boardName: checkResult.boardName || alert.boardName,
     listName: checkResult.listName,
     cards: cardsToSend,
     recipients: emails,
@@ -430,13 +434,17 @@ async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = 
     newlyDetected,
     emailsSent: sendResult.sentCount || emails.length,
     unreachable,
-    message: null
+    message: checkResult.message || null
   };
 }
 
 /**
  * Scheduled check-alerts endpoint.
  * GET only, protected by CRON_SECRET.
+ * Query params:
+ * - ?dryRun=1: Simulate check and email resolution without writing to database or sending email.
+ * - ?alertId=<id>: Test a specific alert.
+ * - ?daysOverride=<n>: Test mode for 'stuck-in-list' and 'no-activity' alerts; sends immediately if cards match. With daysOverride=0, all cards match as inactive. Ignored for 'overdue-in-list'.
  */
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
