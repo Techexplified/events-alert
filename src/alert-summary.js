@@ -9,12 +9,12 @@ import { getAvatarColors, getInitials } from './recipients-editor.js';
  * @param {HTMLElement} container - Element to render chips/lines into.
  * @param {object} filters - The saved filters object from conditions.
  */
-export function renderFiltersSummary(container, filters) {
+export function renderFiltersSummary(container, filters, allowedFilters) {
   container.innerHTML = '';
 
-  const hasLabels = filters && Array.isArray(filters.labels) && filters.labels.length > 0;
-  const hasMembers = filters && Array.isArray(filters.members) && filters.members.length > 0;
-  const hasCustomField = filters && filters.customField && filters.customField.fieldId;
+  const hasLabels = (!allowedFilters || allowedFilters.includes('label')) && filters && Array.isArray(filters.labels) && filters.labels.length > 0;
+  const hasMembers = (!allowedFilters || allowedFilters.includes('member')) && filters && Array.isArray(filters.members) && filters.members.length > 0;
+  const hasCustomField = (!allowedFilters || allowedFilters.includes('customField')) && filters && filters.customField && filters.customField.fieldId;
 
   if (!hasLabels && !hasMembers && !hasCustomField) {
     const noneSpan = document.createElement('span');
@@ -332,7 +332,7 @@ export function renderAlertSummaryRows({ container, alert, boardName, currentMem
 
     const displayContainer = document.createElement('div');
     filtersValue.appendChild(displayContainer);
-    renderFiltersSummary(displayContainer, conditions.filters);
+    renderFiltersSummary(displayContainer, conditions.filters, schema.filters);
 
     const filtersAction = document.createElement('div');
     filtersAction.className = 'review-row-action';
@@ -353,7 +353,7 @@ export function renderAlertSummaryRows({ container, alert, boardName, currentMem
       isEditable: true,
       refreshValue: (currentAlert) => {
         const curCond = currentAlert.conditions || {};
-        renderFiltersSummary(displayContainer, curCond.filters);
+        renderFiltersSummary(displayContainer, curCond.filters, schema.filters);
       }
     });
   }

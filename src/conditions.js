@@ -246,6 +246,7 @@ async function initConditionsPage() {
     filtersEditor = createFiltersEditor({
       container: filtersContainer,
       boardData,
+      allowedFilters: schema.filters,
       value: existingCond.filters || null
     });
   }

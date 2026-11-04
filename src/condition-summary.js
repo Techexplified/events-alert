@@ -48,14 +48,29 @@ export function summarizeConditions(draft) {
     }
 
     case 'due-soon-unassigned': {
-      const timing = cond.dueDateCondition || cond.timing || cond.condition;
-      const days = cond.dueSoonDays != null ? cond.dueSoonDays : cond.days;
-      if (timing === 'before-due-date' && typeof days === 'number' && days > 0) {
-        return `Notify when a card is due in ${days} ${days === 1 ? 'day' : 'days'} and has no assignee.`;
-      } else if (timing === 'on-due-date') {
-        return 'Notify when a card is due today and has no assignee.';
+      const mode = cond.mode || (cond.dueDateCondition === 'on-due-date' || cond.timing === 'on-due-date' || cond.condition === 'on-due-date' ? 'on' : 'before');
+      const isBefore = mode === 'before';
+      const days = cond.days != null ? cond.days : (cond.dueSoonDays != null ? cond.dueSoonDays : 2);
+      const timeStr = isBefore ? `due within ${days} ${days === 1 ? 'day' : 'days'}` : 'due today';
+      const listStr = cond.listId && cond.listName && cond.listName !== 'Any list'
+        ? `(${cond.listName})`
+        : '(any list)';
+      let text = `Unassigned cards ${timeStr} ${listStr}`;
+
+      const filterParts = [];
+      if (cond.filters) {
+        if (Array.isArray(cond.filters.labels) && cond.filters.labels.length > 0) {
+          const labelNames = cond.filters.labels.map((l) => l.name || 'unnamed').join(', ');
+          filterParts.push(`label: ${labelNames}`);
+        }
+        if (cond.filters.customField && cond.filters.customField.fieldName && cond.filters.customField.valueLabel) {
+          filterParts.push(`${cond.filters.customField.fieldName} = "${cond.filters.customField.valueLabel}"`);
+        }
       }
-      return fallbackDescription;
+      if (filterParts.length > 0) {
+        text += `, filtered by ${filterParts.join(', ')}`;
+      }
+      return `${text}.`;
     }
 
     default:

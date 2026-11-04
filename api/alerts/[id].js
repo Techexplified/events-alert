@@ -1,6 +1,6 @@
 import { prisma } from '../_lib/db.js';
 import { requireMember, getBoardAccess, AuthError } from '../_lib/auth.js';
-import { updateAlertSchema, checkForbiddenFields } from '../_lib/validate.js';
+import { updateAlertSchema, checkForbiddenFields, validateDueSoonUnassignedConditions } from '../_lib/validate.js';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -73,6 +73,12 @@ export default async function handler(req, res) {
           return res.status(400).json({
             error: `conditions.alertType must match alertType '${alert.alertType}'`
           });
+        }
+        if (alert.alertType === 'due-soon-unassigned') {
+          const validResult = validateDueSoonUnassignedConditions(conditions);
+          if (!validResult.ok) {
+            return res.status(400).json({ error: validResult.error });
+          }
         }
         dataToUpdate.conditions = conditions;
       }

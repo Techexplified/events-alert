@@ -29,6 +29,7 @@ export function createFiltersEditor({
   container,
   boardData = {},
   value = {},
+  allowedFilters = ['label', 'member', 'customField'],
   onRetry = null
 }) {
   if (!container) throw new Error('createFiltersEditor: container is required');
@@ -107,7 +108,9 @@ export function createFiltersEditor({
     labelCard.appendChild(note);
   }
 
-  root.appendChild(labelCard);
+  if (allowedFilters.includes('label')) {
+    root.appendChild(labelCard);
+  }
 
   const labelOptions = (labels || []).map((lbl) => ({
     id: lbl.id,
@@ -205,7 +208,9 @@ export function createFiltersEditor({
     memberCard.appendChild(note);
   }
 
-  root.appendChild(memberCard);
+  if (allowedFilters.includes('member')) {
+    root.appendChild(memberCard);
+  }
 
   const memberOptions = (members || []).map((m) => ({
     id: m.id,
@@ -360,7 +365,9 @@ export function createFiltersEditor({
     cfCard.appendChild(note);
   }
 
-  root.appendChild(cfCard);
+  if (allowedFilters.includes('customField')) {
+    root.appendChild(cfCard);
+  }
   container.appendChild(root);
 
   function updateCustomFieldValueOptions(fieldId, preselectedValueId = null) {
@@ -459,7 +466,7 @@ export function createFiltersEditor({
   return {
     getValue() {
       let filterLabels = null;
-      if (labelCheckboxEl && labelCheckboxEl.checked) {
+      if (allowedFilters.includes('label') && labelCheckboxEl && labelCheckboxEl.checked) {
         const selectedIds = labelMultiSelect.getSelectedIds();
         filterLabels = selectedIds.map((id) => {
           const found = (labels || []).find((l) => l.id === id);
@@ -472,7 +479,7 @@ export function createFiltersEditor({
       }
 
       let filterMembers = null;
-      if (memberCheckboxEl && memberCheckboxEl.checked) {
+      if (allowedFilters.includes('member') && memberCheckboxEl && memberCheckboxEl.checked) {
         const selectedIds = memberMultiSelect.getSelectedIds();
         filterMembers = selectedIds.map((id) => {
           const found = (members || []).find((m) => m.id === id);
@@ -484,7 +491,7 @@ export function createFiltersEditor({
       }
 
       let filterCustomField = null;
-      if (customFieldCheckboxEl && customFieldCheckboxEl.checked) {
+      if (allowedFilters.includes('customField') && customFieldCheckboxEl && customFieldCheckboxEl.checked) {
         const fieldId = customFieldSelectEl.value || '';
         const fieldOpt = customFieldSelectEl.options[customFieldSelectEl.selectedIndex];
         const fieldName = fieldOpt && fieldOpt.value ? fieldOpt.textContent : '';
@@ -511,7 +518,7 @@ export function createFiltersEditor({
     validate() {
       let isValid = true;
 
-      if (labelCheckboxEl && labelCheckboxEl.checked) {
+      if (allowedFilters.includes('label') && labelCheckboxEl && labelCheckboxEl.checked) {
         const labelIds = labelMultiSelect.getSelectedIds();
         if (!labelIds || labelIds.length === 0) {
           labelError.classList.add('visible');
@@ -523,7 +530,7 @@ export function createFiltersEditor({
         labelError.classList.remove('visible');
       }
 
-      if (memberCheckboxEl && memberCheckboxEl.checked) {
+      if (allowedFilters.includes('member') && memberCheckboxEl && memberCheckboxEl.checked) {
         const memberIds = memberMultiSelect.getSelectedIds();
         if (!memberIds || memberIds.length === 0) {
           memberError.classList.add('visible');
@@ -535,7 +542,7 @@ export function createFiltersEditor({
         memberError.classList.remove('visible');
       }
 
-      if (customFieldCheckboxEl && customFieldCheckboxEl.checked) {
+      if (allowedFilters.includes('customField') && customFieldCheckboxEl && customFieldCheckboxEl.checked) {
         const fId = customFieldSelectEl ? customFieldSelectEl.value : '';
         const vId = customFieldValueSelectEl ? customFieldValueSelectEl.value : '';
         if (!fId || !vId) {

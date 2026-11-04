@@ -9,6 +9,7 @@ import { createFiltersEditor } from './filters-editor.js';
 import { createRecipientsEditor } from './recipients-editor.js';
 import { createAlert, updateAlert } from './alerts-api.js';
 import { renderAlertSummaryRows } from './alert-summary.js';
+import { conditionSchemas } from './conditions-schemas.js';
 import { goToMyAlerts } from './navigation.js';
 import { TRELLO_APP_KEY, TRELLO_APP_NAME, TRELLO_APP_AUTHOR } from './config.js';
 import { NotAuthorizedError, ApiError } from './api-client.js';
@@ -404,6 +405,10 @@ async function initReviewPage() {
 
           const updatedFieldValues = fieldControl.getValue();
           draft.conditions = { ...draft.conditions, ...updatedFieldValues };
+          if (updatedFieldValues.mode === 'on') {
+            delete draft.conditions.days;
+            delete draft.conditions.dueSoonDays;
+          }
           await persistDraft(draft);
 
           rowHandle.refreshValue(draft);
@@ -459,9 +464,13 @@ async function initReviewPage() {
         const { boardData } = await ensureBoardDataLoaded();
         editorBody.innerHTML = '';
 
+        const schema = conditionSchemas[draft.alertTypeId || draft.conditions?.alertType || draft.triggerType];
+        const allowedFilters = schema?.filters;
+
         const filtersEditor = createFiltersEditor({
           container: editorBody,
           boardData,
+          allowedFilters,
           value: draft.conditions ? draft.conditions.filters : null,
           onRetry: async () => {
             const fresh = await fetchBoardData(t, { forceRefresh: true });
@@ -469,6 +478,7 @@ async function initReviewPage() {
             createFiltersEditor({
               container: editorBody,
               boardData: fresh,
+              allowedFilters,
               value: draft.conditions ? draft.conditions.filters : null
             });
           }

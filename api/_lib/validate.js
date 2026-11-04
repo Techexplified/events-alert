@@ -10,6 +10,70 @@ export const ALLOWED_ALERT_TYPES = [
 
 export const MAX_CONDITIONS_BYTES = 20 * 1024; // 20 KB
 
+/**
+ * Validates and normalizes conditions for 'due-soon-unassigned' alerts:
+ * - mode must be 'before' or 'on'
+ * - days required and an integer 1..30 when mode is 'before', and ignored/stripped when 'on'
+ * - strips filters.members
+ */
+export function validateDueSoonUnassignedConditions(conditions, ctx = null, path = ['conditions']) {
+  if (!conditions || typeof conditions !== 'object') {
+    const error = 'conditions must be an object';
+    ctx?.addIssue?.({
+      code: z.ZodIssueCode.custom,
+      message: error,
+      path
+    });
+    return { ok: false, error };
+  }
+
+  const rawMode =
+    conditions.mode ||
+    (conditions.dueDateCondition === 'before-due-date' || conditions.timing === 'before-due-date'
+      ? 'before'
+      : conditions.dueDateCondition === 'on-due-date' || conditions.timing === 'on-due-date'
+      ? 'on'
+      : undefined);
+
+  if (rawMode !== 'before' && rawMode !== 'on') {
+    const error = "mode must be 'before' or 'on'";
+    ctx?.addIssue?.({
+      code: z.ZodIssueCode.custom,
+      message: error,
+      path: [...path, 'mode']
+    });
+    return { ok: false, error };
+  }
+
+  conditions.mode = rawMode;
+
+  if (rawMode === 'before') {
+    const rawDays = conditions.days !== undefined ? conditions.days : conditions.dueSoonDays;
+    const numDays = Number(rawDays);
+    if (rawDays === undefined || rawDays === null || !Number.isInteger(numDays) || numDays < 1 || numDays > 30) {
+      const error = "days is required and must be an integer between 1 and 30 when mode is 'before'";
+      ctx?.addIssue?.({
+        code: z.ZodIssueCode.custom,
+        message: error,
+        path: [...path, 'days']
+      });
+      return { ok: false, error };
+    }
+    conditions.days = numDays;
+  } else if (rawMode === 'on') {
+    delete conditions.days;
+    delete conditions.dueSoonDays;
+  }
+
+  if (conditions.filters && typeof conditions.filters === 'object') {
+    if ('members' in conditions.filters) {
+      delete conditions.filters.members;
+    }
+  }
+
+  return { ok: true, conditions };
+}
+
 // Plain object validation and size check for conditions
 // TODO: per-alert-type conditions schemas, when the scheduled checker is built.
 const conditionsObjectSchema = z.record(z.string(), z.any())
@@ -69,6 +133,10 @@ export const createAlertSchema = z.object({
       path: ['conditions', 'alertType']
     });
   }
+
+  if (data.alertType === 'due-soon-unassigned' && data.conditions) {
+    validateDueSoonUnassignedConditions(data.conditions, ctx, ['conditions']);
+  }
 });
 
 /**
@@ -87,6 +155,10 @@ export const updateAlertSchema = z.object({
       code: z.ZodIssueCode.custom,
       message: 'At least one of status, conditions, or recipients must be provided'
     });
+  }
+
+  if (data.conditions && data.conditions.alertType === 'due-soon-unassigned') {
+    validateDueSoonUnassignedConditions(data.conditions, ctx, ['conditions']);
   }
 });
 

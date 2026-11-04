@@ -3,6 +3,7 @@ import { decrypt } from '../_lib/crypto.js';
 import * as stuckInList from '../_lib/checker/stuck-in-list.js';
 import * as overdueInList from '../_lib/checker/overdue-in-list.js';
 import * as noActivity from '../_lib/checker/no-activity.js';
+import * as dueSoonUnassigned from '../_lib/checker/dueSoonUnassigned.js';
 import { resolveRecipients } from '../_lib/checker/recipients.js';
 import { sendAlertEmail } from '../_lib/checker/email.js';
 
@@ -10,14 +11,19 @@ import { sendAlertEmail } from '../_lib/checker/email.js';
 const checkers = {
   'stuck-in-list': stuckInList,
   'overdue-in-list': overdueInList,
-  'no-activity': noActivity
+  'no-activity': noActivity,
+  'due-soon-unassigned': dueSoonUnassigned
 };
 
 /**
  * Checks a single alert regardless of its type.
  */
-async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = {}) {
-  const isDaysOverrideTest = (alert.alertType === 'stuck-in-list' || alert.alertType === 'no-activity') && daysOverride !== undefined;
+async function checkAlert(alert, { dryRun = false, daysOverride = undefined, nowOverride = undefined } = {}) {
+  const isDaysOverrideTest = (
+    alert.alertType === 'stuck-in-list' ||
+    alert.alertType === 'no-activity' ||
+    alert.alertType === 'due-soon-unassigned'
+  ) && daysOverride !== undefined;
   const skipDatabaseWrites = dryRun || isDaysOverrideTest;
   const creatorMemberId = alert.createdByMemberId || alert.recipients?.creator?.id;
 
@@ -104,7 +110,13 @@ async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = 
   }
 
   const checkResult = await checker.check(alert, creatorToken, {
-    daysOverride: (alert.alertType === 'stuck-in-list' || alert.alertType === 'no-activity') ? daysOverride : undefined,
+    daysOverride:
+      alert.alertType === 'stuck-in-list' ||
+      alert.alertType === 'no-activity' ||
+      alert.alertType === 'due-soon-unassigned'
+        ? daysOverride
+        : undefined,
+    nowOverride: dryRun ? nowOverride : undefined,
     dryRun
   });
 
@@ -365,13 +377,18 @@ async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = 
     notificationIds = items.map((c) => c.cardId);
   } else {
     notificationIds = unsentRows.map((r) => r.id);
-    cardsToSend = unsentRows.map((r) => ({
-      cardId: r.cardId,
-      name: r.cardName,
-      url: r.cardUrl,
-      episodeAt: r.episodeAt,
-      daysInList: Math.max(0, Math.floor((Date.now() - new Date(r.episodeAt).getTime()) / (24 * 60 * 60 * 1000)))
-    }));
+    const itemMap = new Map(items.map((item) => [item.cardId, item]));
+    cardsToSend = unsentRows.map((r) => {
+      const matchingItem = itemMap.get(r.cardId);
+      return {
+        cardId: r.cardId,
+        name: r.cardName,
+        url: r.cardUrl,
+        episodeAt: r.episodeAt,
+        listName: matchingItem?.listName || checkResult.listName || 'List',
+        daysInList: Math.max(0, Math.floor((Date.now() - new Date(r.episodeAt).getTime()) / (24 * 60 * 60 * 1000)))
+      };
+    });
   }
 
   const sendResult = await sendAlertEmail({
@@ -444,7 +461,8 @@ async function checkAlert(alert, { dryRun = false, daysOverride = undefined } = 
  * Query params:
  * - ?dryRun=1: Simulate check and email resolution without writing to database or sending email.
  * - ?alertId=<id>: Test a specific alert.
- * - ?daysOverride=<n>: Test mode for 'stuck-in-list' and 'no-activity' alerts; sends immediately if cards match. With daysOverride=0, all cards match as inactive. Ignored for 'overdue-in-list'.
+ * - ?daysOverride=<n>: Test mode for 'stuck-in-list', 'no-activity', and 'due-soon-unassigned' alerts; sends immediately if cards match. With daysOverride=0, all cards match as inactive in no-activity. Ignored for 'overdue-in-list'.
+ * - ?nowOverride=<ISO timestamp>: Dry run only, to simulate a different "now" (e.g. for due-soon-unassigned).
  */
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -465,6 +483,10 @@ export default async function handler(req, res) {
   const dryRun = req.query.dryRun === '1' || req.query.dryRun === 'true';
   const hasDaysOverride = req.query.daysOverride !== undefined && req.query.daysOverride !== '';
   const daysOverride = hasDaysOverride ? Number(req.query.daysOverride) : undefined;
+  const nowOverride =
+    typeof req.query.nowOverride === 'string' && req.query.nowOverride.trim()
+      ? req.query.nowOverride.trim()
+      : undefined;
   const alertIdFilter = typeof req.query.alertId === 'string' && req.query.alertId.trim()
     ? req.query.alertId.trim()
     : undefined;
@@ -495,7 +517,7 @@ export default async function handler(req, res) {
       }
 
       try {
-        const result = await checkAlert(alert, { dryRun, daysOverride });
+        const result = await checkAlert(alert, { dryRun, daysOverride, nowOverride });
         results.push(result);
       } catch (err) {
         console.error(`Error checking alert ${alert.id}:`, err.message || err);

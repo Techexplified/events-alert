@@ -35,9 +35,13 @@ export function formatFieldValue(field, conditions) {
     }
 
     case 'radio-due-soon': {
-      const timing = conditions.dueDateCondition || conditions.timing || conditions.condition || 'before-due-date';
+      const timing = conditions.mode === 'before'
+        ? 'before-due-date'
+        : (conditions.mode === 'on'
+          ? 'on-due-date'
+          : (conditions.dueDateCondition || conditions.timing || conditions.condition || 'before-due-date'));
       if (timing === 'before-due-date') {
-        const days = conditions.dueSoonDays != null ? conditions.dueSoonDays : (conditions.days != null ? conditions.days : 2);
+        const days = conditions.days != null ? conditions.days : (conditions.dueSoonDays != null ? conditions.dueSoonDays : 2);
         return `Before due date (${days} ${days === 1 ? 'day' : 'days'})`;
       }
       return 'On due date';
@@ -424,7 +428,9 @@ export function renderConditionField({
     const radioContainer = document.createElement('div');
     radioContainer.className = 'radio-group-container';
 
-    const currentTiming = value.dueDateCondition || value.timing || value.condition || 'before-due-date';
+    const currentTiming = value.mode === 'on' || value.dueDateCondition === 'on-due-date' || value.timing === 'on-due-date' || value.condition === 'on-due-date'
+      ? 'on-due-date'
+      : 'before-due-date';
     const optBefore = (field.options || []).find((o) => o.value === 'before-due-date') || {};
     const defaultDays = optBefore.defaultDays != null ? optBefore.defaultDays : 2;
     const minDays = optBefore.minDays != null ? optBefore.minDays : 1;
@@ -529,13 +535,17 @@ export function renderConditionField({
         const isBefore = rBefore.checked;
         const parsedDays = parseInt(daysInput.value, 10);
         const dueSoonDays = isNaN(parsedDays) ? defaultDays : parsedDays;
-        return {
+        const result = {
+          mode: isBefore ? 'before' : 'on',
           dueDateCondition: isBefore ? 'before-due-date' : 'on-due-date',
           condition: isBefore ? 'before-due-date' : 'on-due-date',
-          timing: isBefore ? 'before-due-date' : 'on-due-date',
-          days: isBefore ? dueSoonDays : 0,
-          dueSoonDays: isBefore ? dueSoonDays : 0
+          timing: isBefore ? 'before-due-date' : 'on-due-date'
         };
+        if (isBefore) {
+          result.days = dueSoonDays;
+          result.dueSoonDays = dueSoonDays;
+        }
+        return result;
       },
       validate() {
         if (rBefore.checked) {

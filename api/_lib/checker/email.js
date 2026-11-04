@@ -145,6 +145,62 @@ export const templates = {
         return `- ${c.name} (${c.url}) - last activity ${dateStr} (${daysAgoStr})`;
       }
     }
+  },
+  'due-soon-unassigned': {
+    heading: 'Due Soon and Unassigned Alert',
+    subject: ({ alert, boardName }) => {
+      const mode =
+        alert?.conditions?.mode ||
+        (alert?.conditions?.timing === 'on-due-date' || alert?.conditions?.dueDateCondition === 'on-due-date'
+          ? 'on'
+          : 'before');
+      const name = alert?.alertName || alert?.name || boardName || alert?.boardName || 'Trello Board';
+      if (mode === 'on') {
+        return `Due today and unassigned: ${name}`;
+      }
+      return `Due soon and unassigned: ${name}`;
+    },
+    intro: {
+      html: ({ alert, boardName, days }) => {
+        const mode =
+          alert?.conditions?.mode ||
+          (alert?.conditions?.timing === 'on-due-date' || alert?.conditions?.dueDateCondition === 'on-due-date'
+            ? 'on'
+            : 'before');
+        const escapedBoardName = escapeHtml(boardName);
+        if (mode === 'on') {
+          return `These cards on the board &quot;${escapedBoardName}&quot; are due today and don&#39;t have anyone assigned yet:`;
+        }
+        const dayLabel = days === 1 ? '1 day' : `${days} days`;
+        return `These cards on the board &quot;${escapedBoardName}&quot; are due within the next ${dayLabel} and don&#39;t have anyone assigned yet:`;
+      },
+      text: ({ alert, boardName, days }) => {
+        const mode =
+          alert?.conditions?.mode ||
+          (alert?.conditions?.timing === 'on-due-date' || alert?.conditions?.dueDateCondition === 'on-due-date'
+            ? 'on'
+            : 'before');
+        if (mode === 'on') {
+          return `These cards on the board "${boardName}" are due today and don't have anyone assigned yet:`;
+        }
+        const dayLabel = days === 1 ? '1 day' : `${days} days`;
+        return `These cards on the board "${boardName}" are due within the next ${dayLabel} and don't have anyone assigned yet:`;
+      }
+    },
+    line: {
+      html: (c) => {
+        const episodeAt = c.episodeAt || c.due;
+        const dateStr = formatUtcDate(episodeAt);
+        const listName = c.listName || 'List';
+        return `<a href="${escapeHtml(c.url)}" style="color: #0284c7; text-decoration: none; font-weight: 500;" target="_blank" rel="noopener noreferrer">${escapeHtml(c.name)}</a>\n          <span style="color: #6b7280;"> (${escapeHtml(listName)}) - due ${dateStr} - No members assigned</span>`;
+      },
+      text: (c) => {
+        const episodeAt = c.episodeAt || c.due;
+        const dateStr = formatUtcDate(episodeAt);
+        const listName = c.listName || 'List';
+        return `- ${c.name} (${c.url}) (${listName}) - due ${dateStr} - No members assigned`;
+      }
+    }
   }
 };
 
@@ -177,7 +233,13 @@ export function buildEmailContent({
   const visibleCards = sortedCards.slice(0, 20);
   const remaining = sortedCards.length - visibleCards.length;
 
-  const effectiveDays = days ?? alert?.conditions?.days ?? 3;
+  const effectiveDays =
+    days ?? alert?.conditions?.days ?? alert?.conditions?.dueSoonDays ?? (typeKey === 'due-soon-unassigned' ? 2 : 3);
+
+  const remainingText =
+    typeKey === 'due-soon-unassigned'
+      ? `...and ${remaining} more card${remaining === 1 ? '' : 's'}`
+      : `+${remaining} more`;
 
   const unsubscribeHtml = unsubUrl
     ? `<p style="margin: 0;"><a href="${escapeHtml(unsubUrl)}" style="color: #6b7280; text-decoration: underline;">Stop receiving these emails</a></p>`
@@ -208,7 +270,7 @@ export function buildEmailContent({
     </ul>
     ${
       remaining > 0
-        ? `<p style="margin-top: -10px; margin-bottom: 20px; font-size: 13px; color: #6b7280; font-style: italic;">+${remaining} more</p>`
+        ? `<p style="margin-top: -10px; margin-bottom: 20px; font-size: 13px; color: #6b7280; font-style: italic;">${escapeHtml(remainingText)}</p>`
         : ''
     }
     <div style="border-top: 1px solid #e5e7eb; padding-top: 16px; font-size: 12px; color: #6b7280;">
@@ -230,7 +292,7 @@ export function buildEmailContent({
   ];
 
   if (remaining > 0) {
-    textLines.push(`+${remaining} more`);
+    textLines.push(remainingText);
   }
 
   const effectiveCreatorName = creatorName || 'Alert creator';

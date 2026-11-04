@@ -38,12 +38,12 @@ export const conditionSchemas = {
         label: 'Due date condition',
         default: 'before-due-date',
         options: [
-          { value: 'before-due-date', label: 'Before due date', unit: 'day(s)', defaultDays: 2, minDays: 1, maxDays: 365 },
+          { value: 'before-due-date', label: 'Before due date', unit: 'day(s)', defaultDays: 2, minDays: 1, maxDays: 30 },
           { value: 'on-due-date', label: 'On due date' }
         ]
       }
     ],
-    filters: ['label', 'member', 'customField']
+    filters: ['label', 'customField']
   },
   'custom-condition': null      // TODO
 };
