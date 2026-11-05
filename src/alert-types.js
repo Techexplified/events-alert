@@ -30,14 +30,6 @@ export const alertTypes = [
     iconColor: '#0284C7',
     title: 'Due soon and unassigned',
     description: 'Notify when a card is due soon and has no assignee.'
-  },
-  {
-    id: 'custom-condition',
-    icon: '⚙️',
-    iconBg: '#DCFCE7',
-    iconColor: '#0F172A',
-    title: 'Custom condition',
-    description: 'Create your own condition.'
   }
 ];
 
@@ -67,19 +59,6 @@ export function getIconSvg(typeId, color) {
       return `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="8" r="4"/>
         <path d="M19 20.5v-1.5a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v1.5"/>
-      </svg>`;
-    case 'custom-condition':
-    case 'custom-fields':
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="3" y1="6" x2="5.5" y2="6"/>
-        <line x1="10.5" y1="6" x2="21" y2="6"/>
-        <circle cx="8" cy="6" r="2.5"/>
-        <line x1="3" y1="12" x2="13.5" y2="12"/>
-        <line x1="18.5" y1="12" x2="21" y2="12"/>
-        <circle cx="16" cy="12" r="2.5"/>
-        <line x1="3" y1="18" x2="5.5" y2="18"/>
-        <line x1="10.5" y1="18" x2="21" y2="18"/>
-        <circle cx="8" cy="18" r="2.5"/>
       </svg>`;
     default:
       return '';

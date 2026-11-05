@@ -97,8 +97,6 @@ function setupCloseButton() {
   closeBtn.addEventListener('click', () => {
     if (t && typeof t.closeModal === 'function') {
       t.closeModal();
-    } else {
-      console.log('Modal closed (running outside Trello iframe)');
     }
   });
 }
@@ -194,7 +192,6 @@ async function handleNext() {
     }
   }
 
-  console.log('proceeding to step 2 with draft:', draft);
   openConditions();
 }
 

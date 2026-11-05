@@ -59,7 +59,6 @@ export async function check(alert, token, opts = {}) {
 
   let cards = Array.isArray(cardsRes.data) ? cardsRes.data : [];
   if (cards.length > 200) {
-    console.log(`Alert ${alert.id}: list ${listId} has ${cards.length} cards; processing first 200.`);
     cards = cards.slice(0, 200);
   }
 
@@ -71,7 +70,6 @@ export async function check(alert, token, opts = {}) {
   const now = new Date();
   const cutoffTime = now.getTime() - days * 24 * 60 * 60 * 1000;
 
-  let loggedOneDryRunAction = false;
   const items = [];
 
   await Promise.all(
@@ -86,11 +84,6 @@ export async function check(alert, token, opts = {}) {
       );
 
       const actions = actionsRes.ok && Array.isArray(actionsRes.data) ? actionsRes.data : [];
-
-      if (dryRun && !loggedOneDryRunAction && actions.length > 0) {
-        loggedOneDryRunAction = true;
-        console.log('[dry-run] Sample entry action payload:', JSON.stringify(actions[0], null, 2));
-      }
 
       const episodeAt = entryTime(card, listId, actions);
       if (episodeAt.getTime() <= cutoffTime) {

@@ -4,8 +4,7 @@ export const ALLOWED_ALERT_TYPES = [
   'stuck-in-list',
   'no-activity',
   'overdue-in-list',
-  'due-soon-unassigned',
-  'custom-condition'
+  'due-soon-unassigned'
 ];
 
 export const MAX_CONDITIONS_BYTES = 20 * 1024; // 20 KB

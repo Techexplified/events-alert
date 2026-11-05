@@ -179,10 +179,8 @@ export async function fetchCustomFields(t, { forceRefresh = false } = {}) {
     try {
       const b = await t.board('customFields');
       cachedCustomFields = b && Array.isArray(b.customFields) ? b.customFields : [];
-      console.log('Raw customFields response:', cachedCustomFields);
       return cachedCustomFields;
     } catch (err) {
-      console.log('Custom Fields Power-Up not available on this board:', err);
       cachedCustomFields = null;
       return null;
     }

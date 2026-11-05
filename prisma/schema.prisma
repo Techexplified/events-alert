@@ -17,7 +17,7 @@ model Alert {
   id                String      @id @default(cuid())
   boardId           String
   boardName         String
-  alertType         String      // stuck-in-list | no-activity | overdue-in-list | due-soon-unassigned | custom-condition
+  alertType         String      // stuck-in-list | no-activity | overdue-in-list | due-soon-unassigned
   conditions        Json
   recipients        Json        // includes recipients.frequency and recipients.creator for now
   status            AlertStatus @default(active)

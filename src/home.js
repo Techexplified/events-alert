@@ -43,7 +43,6 @@ function renderAlertCards() {
   container.querySelectorAll('.alert-card').forEach((card) => {
     card.addEventListener('click', async () => {
       const typeId = card.getAttribute('data-alert-id');
-      console.log('alert type selected:', typeId);
       const draft = {
         alertName: '',
         triggerType: typeId,
@@ -93,8 +92,6 @@ function setupCloseButton() {
   closeBtn.addEventListener('click', () => {
     if (t && typeof t.closeModal === 'function') {
       t.closeModal();
-    } else {
-      console.log('Modal closed (running outside Trello iframe)');
     }
   });
 }

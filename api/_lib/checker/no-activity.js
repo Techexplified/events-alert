@@ -59,7 +59,6 @@ export async function check(alert, token, opts = {}) {
   let resultMessage = null;
   if (cards.length > 1000) {
     resultMessage = `Board has ${cards.length} cards; checked the first 1000`;
-    console.log(`Alert ${alert.id}: board ${alert.boardId} has ${cards.length} cards; processing first 1000.`);
     cards = cards.slice(0, 1000);
   }
 

@@ -43,7 +43,6 @@ export async function check(alert, token, _opts = {}) {
 
   let cards = Array.isArray(cardsRes.data) ? cardsRes.data : [];
   if (cards.length > 200) {
-    console.log(`Alert ${alert.id}: list ${listId} has ${cards.length} cards; processing first 200.`);
     cards = cards.slice(0, 200);
   }
 

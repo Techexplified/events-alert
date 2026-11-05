@@ -44,6 +44,5 @@ export const conditionSchemas = {
       }
     ],
     filters: ['label', 'customField']
-  },
-  'custom-condition': null      // TODO
+  }
 };
