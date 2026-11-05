@@ -253,8 +253,7 @@ export default async function handler(req, res) {
 </body>
 </html>`);
     }
-  } catch (err) {
-    console.error('api/unsubscribe error:', err?.message || 'Unknown error');
+  } catch {
     return renderErrorPage(res);
   }
 }

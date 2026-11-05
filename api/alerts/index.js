@@ -102,7 +102,6 @@ export default async function handler(req, res) {
     if (err instanceof AuthError) {
       return res.status(err.status).json({ error: err.message });
     }
-    console.error('api/alerts error:', err.message || 'Unknown error');
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

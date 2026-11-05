@@ -31,8 +31,7 @@ export function getTrello(options = {}) {
   try {
     cachedTrello = window.TrelloPowerUp.iframe(merged);
     return cachedTrello;
-  } catch (err) {
-    console.warn('Failed to initialize TrelloPowerUp.iframe:', err);
+  } catch {
     return null;
   }
 }

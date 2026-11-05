@@ -96,8 +96,7 @@ export async function fetchBoardInfo(t, { forceRefresh = false } = {}) {
         name: b && b.name ? b.name : 'Current Board'
       };
       return cachedBoardInfo;
-    } catch (err) {
-      console.warn('Failed to load board info:', err);
+    } catch {
       cachedBoardInfo = { id: '', name: 'Current Board' };
       return cachedBoardInfo;
     }
@@ -117,8 +116,7 @@ export async function fetchLists(t, { forceRefresh = false } = {}) {
       const listsRes = await t.lists('id', 'name');
       cachedLists = Array.isArray(listsRes) ? listsRes : [];
       return cachedLists;
-    } catch (err) {
-      console.warn('Failed to load lists:', err);
+    } catch {
       cachedLists = null;
       return null;
     }
@@ -138,8 +136,7 @@ export async function fetchLabels(t, { forceRefresh = false } = {}) {
       const boardRes = await t.board('labels');
       cachedLabels = boardRes && Array.isArray(boardRes.labels) ? boardRes.labels : null;
       return cachedLabels;
-    } catch (err) {
-      console.warn('Failed to load labels:', err);
+    } catch {
       cachedLabels = null;
       return null;
     }
@@ -159,8 +156,7 @@ export async function fetchMembers(t, { forceRefresh = false } = {}) {
       const boardRes = await t.board('members');
       cachedMembers = boardRes && Array.isArray(boardRes.members) ? boardRes.members : null;
       return cachedMembers;
-    } catch (err) {
-      console.warn('Failed to load members:', err);
+    } catch {
       cachedMembers = null;
       return null;
     }
@@ -200,8 +196,7 @@ export async function fetchCurrentMember(t, { forceRefresh = false } = {}) {
       const meRes = await t.member('id', 'fullName', 'username');
       cachedCurrentMember = meRes && meRes.id ? meRes : null;
       return cachedCurrentMember;
-    } catch (err) {
-      console.warn('Failed to load current member info:', err);
+    } catch {
       cachedCurrentMember = null;
       return null;
     }

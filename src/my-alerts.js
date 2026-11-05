@@ -261,8 +261,7 @@ function renderNotConnectedState() {
     try {
       await getToken(t, { interactive: true });
       await loadAndRenderAlerts();
-    } catch (err) {
-      console.error('Failed to authorize:', err);
+    } catch {
       connectBtn.disabled = false;
       connectBtn.textContent = 'Connect your Trello account';
     }
@@ -333,7 +332,6 @@ async function loadAndRenderAlerts() {
     globalErrorMessage = null;
     renderAlertCards();
   } catch (err) {
-    console.error('loadAndRenderAlerts error:', err);
     if (err instanceof NotAuthorizedError) {
       renderNotConnectedState();
     } else {
@@ -673,7 +671,6 @@ function renderAlertCards() {
             allAlerts = allAlerts.filter((a) => a.id !== alert.id);
             renderAlertCards();
           } catch (err) {
-            console.error('Delete failed:', err);
             if (err.status === 403) {
               globalErrorMessage = "Only the alert's creator or a board admin can change this alert";
               await loadAndRenderAlerts();

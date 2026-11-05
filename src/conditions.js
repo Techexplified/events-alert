@@ -66,8 +66,8 @@ async function loadDraft() {
   if (t && typeof t.get === 'function') {
     try {
       draft = await t.get('board', 'private', 'alertDraft');
-    } catch (err) {
-      console.warn('Error reading alertDraft from Trello storage:', err);
+    } catch {
+      // ignore
     }
   }
 
@@ -77,8 +77,8 @@ async function loadDraft() {
       if (stored) {
         draft = JSON.parse(stored);
       }
-    } catch (err) {
-      console.warn('Error reading alertDraft from localStorage:', err);
+    } catch {
+      // ignore
     }
   }
 
@@ -90,15 +90,15 @@ async function persistDraft(draft) {
   if (t && typeof t.set === 'function') {
     try {
       await t.set('board', 'private', 'alertDraft', draft);
-    } catch (err) {
-      console.warn('Error saving draft to Trello storage:', err);
+    } catch {
+      // ignore
     }
   }
 
   try {
     localStorage.setItem('alertDraft', JSON.stringify(draft));
-  } catch (err) {
-    console.warn('Error saving draft to localStorage:', err);
+  } catch {
+    // ignore
   }
 }
 

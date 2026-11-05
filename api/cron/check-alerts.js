@@ -520,7 +520,6 @@ export default async function handler(req, res) {
         const result = await checkAlert(alert, { dryRun, daysOverride, nowOverride });
         results.push(result);
       } catch (err) {
-        console.error(`Error checking alert ${alert.id}:`, err.message || err);
         results.push({
           alertId: alert.id,
           alertType: alert.alertType,
@@ -547,14 +546,11 @@ export default async function handler(req, res) {
             }
           }
         })
-        .catch((err) => {
-          console.error('Failed to cleanup 90-day old notifications:', err.message || err);
-        });
+        .catch(() => {});
     }
 
     return res.status(200).json(results);
-  } catch (err) {
-    console.error('check-alerts route error:', err.message || err);
+  } catch {
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

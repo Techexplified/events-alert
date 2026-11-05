@@ -80,8 +80,8 @@ async function loadDraft() {
   if (t && typeof t.get === 'function') {
     try {
       draft = await t.get('board', 'private', 'alertDraft');
-    } catch (err) {
-      console.warn('Error reading alertDraft from Trello storage:', err);
+    } catch {
+      // Ignore unavailable Trello storage and try local storage.
     }
   }
 
@@ -91,8 +91,8 @@ async function loadDraft() {
       if (stored) {
         draft = JSON.parse(stored);
       }
-    } catch (err) {
-      console.warn('Error reading alertDraft from localStorage:', err);
+    } catch {
+      // Ignore invalid or unavailable local storage.
     }
   }
 
@@ -104,15 +104,15 @@ async function persistDraft(draft) {
   if (t && typeof t.set === 'function') {
     try {
       await t.set('board', 'private', 'alertDraft', draft);
-    } catch (err) {
-      console.warn('Error saving draft to Trello storage:', err);
+    } catch {
+      // Ignore unavailable Trello storage; local storage is also updated below.
     }
   }
 
   try {
     localStorage.setItem('alertDraft', JSON.stringify(draft));
-  } catch (err) {
-    console.warn('Error saving draft to localStorage:', err);
+  } catch {
+    // Ignore unavailable local storage.
   }
 }
 
@@ -121,14 +121,14 @@ async function clearDraft() {
   if (t && typeof t.set === 'function') {
     try {
       await t.set('board', 'private', 'alertDraft', null);
-    } catch (err) {
-      console.warn('Error clearing draft from Trello storage:', err);
+    } catch {
+      // Ignore unavailable Trello storage.
     }
   }
   try {
     localStorage.removeItem('alertDraft');
-  } catch (err) {
-    console.warn('Error clearing draft from localStorage:', err);
+  } catch {
+    // Ignore unavailable local storage.
   }
 }
 
@@ -791,7 +791,6 @@ async function initReviewPage() {
         await clearDraft();
         openAlertCreated();
       } catch (err) {
-        console.error('Failed to update alert:', err);
         const errorMsg = (err instanceof NotAuthorizedError)
           ? 'Please connect your Trello account to save changes.'
           : (err.message || 'Failed to update alert. Please try again.');
@@ -835,7 +834,6 @@ async function initReviewPage() {
         await clearDraft();
         openAlertCreated();
       } catch (err) {
-        console.error('Failed to create alert:', err);
         const errorMsg = (err instanceof NotAuthorizedError)
           ? 'Please connect your Trello account to create an alert.'
           : (err.message || 'Failed to create alert. Please try again.');

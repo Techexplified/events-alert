@@ -59,8 +59,8 @@ async function loadLastSavedAlert() {
   if (t && typeof t.get === 'function') {
     try {
       savedData = await t.get('board', 'private', 'lastSavedAlert');
-    } catch (err) {
-      console.warn('Error reading lastSavedAlert from Trello storage:', err);
+    } catch {
+      // ignore
     }
   }
 
@@ -70,8 +70,8 @@ async function loadLastSavedAlert() {
       if (stored) {
         savedData = JSON.parse(stored);
       }
-    } catch (err) {
-      console.warn('Error reading lastSavedAlert from localStorage:', err);
+    } catch {
+      // ignore
     }
   }
 
@@ -83,14 +83,14 @@ async function clearLastSavedAlert() {
   if (t && typeof t.set === 'function') {
     try {
       await t.set('board', 'private', 'lastSavedAlert', null);
-    } catch (err) {
-      console.warn('Error clearing lastSavedAlert from Trello storage:', err);
+    } catch {
+      // ignore
     }
   }
   try {
     localStorage.removeItem('lastSavedAlert');
-  } catch (err) {
-    console.warn('Error clearing lastSavedAlert from localStorage:', err);
+  } catch {
+    // ignore
   }
 }
 
@@ -99,14 +99,14 @@ async function clearDraft() {
   if (t && typeof t.set === 'function') {
     try {
       await t.set('board', 'private', 'alertDraft', null);
-    } catch (err) {
-      console.warn('Error clearing draft from Trello storage:', err);
+    } catch {
+      // ignore
     }
   }
   try {
     localStorage.removeItem('alertDraft');
-  } catch (err) {
-    console.warn('Error clearing draft from localStorage:', err);
+  } catch {
+    // ignore
   }
 }
 
@@ -143,8 +143,7 @@ async function initAlertCreatedPage() {
   let alert = null;
   try {
     alert = await getAlert(t, alertId);
-  } catch (err) {
-    console.warn('Failed to load alert by ID:', err);
+  } catch {
     showEmptyState(container);
     return;
   }
@@ -355,7 +354,6 @@ async function initAlertCreatedPage() {
           // Replace card content with "Alert deleted" state
           alertCard.innerHTML = '<div class="card-deleted-state">Alert deleted</div>';
         } catch (err) {
-          console.error('Delete alert failed:', err);
           deleteErrorSpan.textContent = err.message || 'Failed to delete alert. Please try again.';
           deleteErrorSpan.classList.add('visible');
           confirmBox.insertBefore(deleteErrorSpan, confirmActions);

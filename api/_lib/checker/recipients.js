@@ -32,8 +32,6 @@ export async function resolveRecipients(alert, creatorToken) {
     const boardRes = await trelloGet(`/1/boards/${alert.boardId}/members`, { fields: 'id' }, creatorToken);
     if (boardRes.ok && Array.isArray(boardRes.data)) {
       memberIds = boardRes.data.map((m) => m.id).filter(Boolean);
-    } else {
-      console.error(`Failed to fetch board members for board ${alert.boardId}`);
     }
   }
 

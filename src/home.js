@@ -52,8 +52,8 @@ function renderAlertCards() {
       if (t && typeof t.set === 'function') {
         try {
           await t.set('board', 'private', 'alertDraft', draft);
-        } catch (err) {
-          console.warn('Error saving alert draft:', err);
+        } catch {
+          // Ignore unavailable Trello storage.
         }
       } else {
         localStorage.setItem('alertDraft', JSON.stringify(draft));

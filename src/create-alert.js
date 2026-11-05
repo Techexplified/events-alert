@@ -154,8 +154,8 @@ async function handleNext() {
   if (t && typeof t.get === 'function') {
     try {
       existing = await t.get('board', 'private', 'alertDraft');
-    } catch (err) {
-      console.warn('Error reading alertDraft from Trello storage:', err);
+    } catch {
+      // ignore
     }
   }
 
@@ -165,8 +165,8 @@ async function handleNext() {
       if (stored) {
         existing = JSON.parse(stored);
       }
-    } catch (err) {
-      console.warn('Error reading alertDraft from localStorage:', err);
+    } catch {
+      // ignore
     }
   }
 
@@ -181,14 +181,14 @@ async function handleNext() {
   if (t && typeof t.set === 'function') {
     try {
       await t.set('board', 'private', 'alertDraft', draft);
-    } catch (err) {
-      console.warn('Error saving draft to Trello storage:', err);
+    } catch {
+      // ignore
     }
   } else {
     try {
       localStorage.setItem('alertDraft', JSON.stringify(draft));
-    } catch (err) {
-      console.warn('Error saving draft to localStorage:', err);
+    } catch {
+      // ignore
     }
   }
 
@@ -202,8 +202,8 @@ async function restoreDraft() {
   if (t && typeof t.get === 'function') {
     try {
       existing = await t.get('board', 'private', 'alertDraft');
-    } catch (err) {
-      console.warn('Error reading alertDraft from Trello storage:', err);
+    } catch {
+      // ignore
     }
   }
 
@@ -213,8 +213,8 @@ async function restoreDraft() {
       if (stored) {
         existing = JSON.parse(stored);
       }
-    } catch (err) {
-      console.warn('Error reading alertDraft from localStorage:', err);
+    } catch {
+      // ignore
     }
   }
 

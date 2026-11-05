@@ -53,9 +53,8 @@ async function syncTrelloCredential({ memberId, fullName, email, token }) {
         invalidAt: null
       }
     });
-  } catch (err) {
+  } catch {
     // Never fail request and never log tokens
-    console.error(`Failed to sync Trello credential for member ${memberId}:`, err.message || err);
   }
 }
 
@@ -81,7 +80,6 @@ export async function requireMember(req) {
 
   const appKey = process.env.TRELLO_APP_KEY;
   if (!appKey) {
-    console.error('TRELLO_APP_KEY environment variable is not configured');
     throw new Error('Server configuration error');
   }
 
@@ -137,7 +135,6 @@ export async function getBoardAccess(memberId, boardId, token) {
 
   const appKey = process.env.TRELLO_APP_KEY;
   if (!appKey) {
-    console.error('TRELLO_APP_KEY environment variable is not configured');
     return { isMember: false, isAdmin: false };
   }
 

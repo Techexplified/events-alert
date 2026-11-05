@@ -20,15 +20,15 @@ export async function startEditingAlert(t, alert, returnTo = 'my-alerts') {
   if (t && typeof t.set === 'function') {
     try {
       await t.set('board', 'private', 'alertDraft', editDraft);
-    } catch (err) {
-      console.warn('Error saving alertDraft to Trello storage:', err);
+    } catch {
+      // ignore
     }
   }
 
   try {
     localStorage.setItem('alertDraft', JSON.stringify(editDraft));
-  } catch (err) {
-    console.warn('Error saving alertDraft to localStorage:', err);
+  } catch {
+    // ignore
   }
 
   const targetUrl = t && typeof t.signUrl === 'function' ? t.signUrl('./review.html') : './review.html';
